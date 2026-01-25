@@ -1,0 +1,33 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Engagement {
+  id                  String   @id @default(cuid())
+  clientName          String
+  clientEmail         String
+  taxYear             Int
+  status              String   @default("PENDING") // PENDING | INTAKE_DONE | COLLECTING | READY
+
+  // External references
+  sharepointFolderUrl String
+  sharepointDriveId   String?
+  sharepointFolderId  String?
+  typeformFormId      String
+  deltaLink           String?  // SharePoint delta token
+
+  // All data as JSONB
+  intakeData          Json?    @db.JsonB
+  checklist           Json?    @db.JsonB
+  documents           Json?    @db.JsonB
+  reconciliation      Json?    @db.JsonB
+  prepBrief           String?  @db.Text
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
