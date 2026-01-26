@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { prisma } from '@/lib/prisma'
-import { syncFolder, downloadFile } from '@/lib/sharepoint'
-import { classifyDocument, reconcile } from '@/lib/openai'
-import type { ChecklistItem, Document } from '@/types'
+import { syncFolder } from '@/lib/sharepoint'
+import { dispatch } from '@/lib/agents/dispatcher'
+import type { Document } from '@/types'
 
 export async function GET(request: NextRequest) {
   // Verify cron secret
@@ -44,46 +44,61 @@ async function pollEngagement(engagement: {
     // Process new files
     const newFiles = items.filter(item => item.file && !item.deleted && item.id && !existingIds.has(item.id))
 
+    if (newFiles.length === 0) {
+      // Just update delta link if no new files
+      await prisma.engagement.update({
+        where: { id: engagement.id },
+        data: { deltaLink: newDeltaLink }
+      })
+      return
+    }
+
+    // Add placeholder documents for new files
     for (const file of newFiles) {
       if (!file.id || !file.name) continue
-
-      const content = await downloadFile(engagement.sharepointDriveId!, file.id)
-      const classification = await classifyDocument(content, file.name)
 
       const newDoc: Document = {
         id: crypto.randomUUID(),
         fileName: file.name,
         sharepointItemId: file.id,
-        documentType: classification.documentType,
-        confidence: classification.confidence,
-        taxYear: classification.taxYear,
-        issues: classification.issues,
-        classifiedAt: new Date().toISOString(),
+        documentType: 'PENDING',
+        confidence: 0,
+        taxYear: null,
+        issues: [],
+        classifiedAt: null,
       }
 
       existingDocs.push(newDoc)
     }
 
-    // Run reconciliation
-    const checklist = (engagement.checklist as ChecklistItem[]) || []
-    const reconciliation = await reconcile(checklist, existingDocs)
-
-    const newStatus = reconciliation.completionPercentage === 100 ? 'READY' : 'COLLECTING'
-
+    // Update documents list and delta link
     await prisma.engagement.update({
       where: { id: engagement.id },
       data: {
         deltaLink: newDeltaLink,
         documents: existingDocs,
-        reconciliation: {
-          ...reconciliation,
-          ranAt: new Date().toISOString(),
-        },
-        status: newStatus,
-      },
+        status: 'COLLECTING'
+      }
     })
 
-    console.log(`[POLL] ${engagement.id}: ${newFiles.length} new docs, ${reconciliation.completionPercentage}% complete`)
+    // Dispatch document_uploaded events for each new file
+    // Assessment Agent will classify and chain to Reconciliation Agent
+    for (const file of newFiles) {
+      if (!file.id || !file.name) continue
+
+      const doc = existingDocs.find(d => d.sharepointItemId === file.id)
+      if (!doc) continue
+
+      await dispatch({
+        type: 'document_uploaded',
+        engagementId: engagement.id,
+        documentId: doc.id,
+        sharepointItemId: file.id,
+        fileName: file.name
+      })
+    }
+
+    console.log(`[POLL] ${engagement.id}: Dispatched ${newFiles.length} documents to Assessment Agent`)
   } catch (error) {
     console.error(`[POLL] Error processing engagement ${engagement.id}:`, error)
   }

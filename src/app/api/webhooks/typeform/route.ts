@@ -3,6 +3,7 @@ import { waitUntil } from '@vercel/functions'
 import crypto from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { generateChecklist } from '@/lib/openai'
+import { dispatch } from '@/lib/agents/dispatcher'
 
 // In-memory dedup for demo (resets on deploy)
 const processedEvents = new Set<string>()
@@ -59,6 +60,12 @@ async function processIntake(engagementId: string, formResponse: unknown) {
   })
 
   console.log(`[INTAKE] Generated ${checklist.length} checklist items for ${engagementId}`)
+
+  // Trigger Outreach Agent to send SharePoint instructions
+  await dispatch({
+    type: 'intake_complete',
+    engagementId
+  })
 }
 
 function verifySignature(payload: string, signature: string | null): boolean {

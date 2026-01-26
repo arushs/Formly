@@ -17,7 +17,7 @@ export const DocumentSchema = z.object({
   confidence: z.number(),
   taxYear: z.number().nullable(),
   issues: z.array(z.string()),
-  classifiedAt: z.string(),
+  classifiedAt: z.string().nullable(),
 })
 
 export const ReconciliationSchema = z.object({

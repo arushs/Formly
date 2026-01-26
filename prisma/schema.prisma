@@ -28,6 +28,12 @@ model Engagement {
   reconciliation      Json?    @db.JsonB
   prepBrief           String?  @db.Text
 
+  // Agent tracking
+  lastActivityAt      DateTime?
+  reminderCount       Int      @default(0)
+  lastReminderAt      DateTime?
+  agentLog            Json?    @db.JsonB
+
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }

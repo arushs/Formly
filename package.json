@@ -9,8 +9,10 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.19",
     "@azure/identity": "^4.13.0",
     "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@mistralai/mistralai": "^1.13.0",
     "@prisma/client": "^5.22.0",
     "@vercel/functions": "^3.3.6",
     "dotenv": "^17.2.3",
@@ -18,6 +20,7 @@
     "openai": "^6.16.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "resend": "^6.8.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

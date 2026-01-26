@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { resolveSharePointUrl } from '@/lib/sharepoint'
+import { dispatch } from '@/lib/agents/dispatcher'
 
 const CreateEngagementSchema = z.object({
   clientName: z.string().min(1),
@@ -51,6 +53,12 @@ export async function POST(request: NextRequest) {
       sharepointFolderId,
     },
   })
+
+  // Trigger Outreach Agent to send welcome email
+  waitUntil(dispatch({
+    type: 'engagement_created',
+    engagementId: engagement.id
+  }))
 
   return NextResponse.json(engagement, { status: 201 })
 }
