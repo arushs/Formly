@@ -1,0 +1,36 @@
+{
+  "name": "tax-agent-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.19",
+    "@azure/identity": "^4.13.0",
+    "@hono/node-server": "^1.14.1",
+    "@hono/zod-validator": "^0.4.3",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@mistralai/mistralai": "^1.13.0",
+    "@prisma/client": "^5.22.0",
+    "dropbox": "^10.34.0",
+    "googleapis": "^170.1.0",
+    "hono": "^4.7.10",
+    "node-cron": "^3.0.3",
+    "openai": "^6.16.0",
+    "resend": "^6.8.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.14",
+    "@types/node-cron": "^3.0.11",
+    "prisma": "^5.22.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}

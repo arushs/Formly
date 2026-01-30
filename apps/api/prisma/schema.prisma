@@ -1,0 +1,48 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Engagement {
+  id                  String   @id @default(cuid())
+  clientName          String
+  clientEmail         String
+  taxYear             Int
+  status              String   @default("PENDING") // PENDING | INTAKE_DONE | COLLECTING | READY
+
+  // Storage provider (sharepoint | google-drive)
+  storageProvider     String   @default("sharepoint")
+  storageFolderUrl    String
+  storageFolderId     String?
+  storageDriveId      String?  // SharePoint only
+  storagePageToken    String?  // Delta link (SharePoint) or page token (Google Drive)
+
+  // Legacy SharePoint fields (deprecated, use storage* fields)
+  sharepointFolderUrl String?
+  sharepointDriveId   String?
+  sharepointFolderId  String?
+  deltaLink           String?
+
+  // Typeform
+  typeformFormId      String
+
+  // All data as JSONB
+  intakeData          Json?    @db.JsonB
+  checklist           Json?    @db.JsonB
+  documents           Json?    @db.JsonB
+  reconciliation      Json?    @db.JsonB
+  prepBrief           String?  @db.Text
+
+  // Agent tracking
+  lastActivityAt      DateTime?
+  reminderCount       Int      @default(0)
+  lastReminderAt      DateTime?
+  agentLog            Json?    @db.JsonB
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
