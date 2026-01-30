@@ -1,103 +1,100 @@
-# Railway Deployment Guide
+# Deployment Guide
 
-## Prerequisites
-- Railway account (https://railway.app)
-- GitHub repo connected to Railway
+## Option 1: Render (Recommended)
 
-## Setup Steps
+### Quick Deploy with Blueprint
 
-### 1. Create Railway Project
-1. Go to https://railway.app/new
-2. Select "Deploy from GitHub repo"
-3. Connect your GitHub account and select this repo
+1. Go to https://render.com/deploy
+2. Connect your GitHub repo
+3. Render will auto-detect `render.yaml` and create:
+   - PostgreSQL database
+   - API service (Docker)
+   - Web service (Docker)
 
-### 2. Add PostgreSQL Database
-1. In your Railway project, click "New" → "Database" → "PostgreSQL"
-2. Copy the `DATABASE_URL` from the Postgres service variables
+### Manual Setup
 
-### 3. Deploy API Service
-1. Click "New" → "GitHub Repo" → Select this repo
-2. Configure:
-   - **Root Directory**: `apps/api`
-   - **Service Name**: `tax-agent-api`
-3. Add environment variables:
-   ```
-   DATABASE_URL=<from step 2>
-   PORT=3001
-   FRONTEND_URL=https://<web-service>.up.railway.app
-   ENABLE_SCHEDULER=true
+1. **Create PostgreSQL Database**
+   - Dashboard → New → PostgreSQL
+   - Name: `tax-agent-db`
+   - Copy the Internal Database URL
 
-   # Required for functionality
-   OPENAI_API_KEY=<your key>
-   MISTRAL_API_KEY=<your key>
-   ANTHROPIC_API_KEY=<your key>
-   TYPEFORM_WEBHOOK_SECRET=<your secret>
-   RESEND_API_KEY=<your key>
-   EMAIL_FROM=noreply@yourdomain.com
+2. **Deploy API**
+   - Dashboard → New → Web Service
+   - Connect GitHub repo
+   - Root Directory: `apps/api`
+   - Runtime: Docker
+   - Add environment variables (see below)
 
-   # Storage (configure at least one)
-   # SharePoint
-   AZURE_TENANT_ID=<optional>
-   AZURE_CLIENT_ID=<optional>
-   AZURE_CLIENT_SECRET=<optional>
+3. **Deploy Web**
+   - Dashboard → New → Web Service
+   - Connect GitHub repo
+   - Root Directory: `apps/web`
+   - Runtime: Docker
+   - Set `VITE_API_URL` to API service URL
 
-   # Google Drive
-   GOOGLE_SERVICE_ACCOUNT_EMAIL=<optional>
-   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=<optional>
+### Environment Variables
 
-   # Dropbox
-   DROPBOX_ACCESS_TOKEN=<optional>
-   ```
-4. Deploy
-
-### 4. Deploy Web Service
-1. Click "New" → "GitHub Repo" → Select this repo
-2. Configure:
-   - **Root Directory**: `apps/web`
-   - **Service Name**: `tax-agent-web`
-3. Add build variables:
-   ```
-   VITE_API_URL=https://<api-service>.up.railway.app
-   ```
-4. Deploy
-
-### 5. Configure Networking
-1. For API service: Generate a public domain (Settings → Networking → Generate Domain)
-2. For Web service: Generate a public domain
-3. Update `FRONTEND_URL` in API with the web domain
-4. Redeploy web with the correct `VITE_API_URL`
-
-## Environment Variables Reference
-
-### API Service
+**API Service:**
 | Variable | Required | Description |
 |----------|----------|-------------|
-| DATABASE_URL | Yes | PostgreSQL connection string |
-| PORT | Yes | Server port (3001) |
-| FRONTEND_URL | Yes | Web app URL for CORS |
-| ENABLE_SCHEDULER | No | Enable cron jobs (default: true) |
-| OPENAI_API_KEY | Yes | For document classification |
-| MISTRAL_API_KEY | Yes | For OCR |
-| ANTHROPIC_API_KEY | Yes | For AI agents |
+| DATABASE_URL | Yes | From Render Postgres |
+| PORT | Yes | `3001` |
+| FRONTEND_URL | Yes | Web service URL |
+| ENABLE_SCHEDULER | No | `true` for cron jobs |
+| OPENAI_API_KEY | Yes | Document classification |
+| MISTRAL_API_KEY | Yes | OCR |
+| ANTHROPIC_API_KEY | Yes | AI agents |
 | TYPEFORM_WEBHOOK_SECRET | Yes | Webhook verification |
 | RESEND_API_KEY | Yes | Email sending |
-| EMAIL_FROM | Yes | Sender email address |
+| EMAIL_FROM | Yes | Sender email |
 
-### Web Service (Build Args)
+**Web Service (Build-time):**
 | Variable | Required | Description |
 |----------|----------|-------------|
 | VITE_API_URL | Yes | API service URL |
 
+---
+
+## Option 2: Railway
+
+### Setup Steps
+
+1. Go to https://railway.app/new
+2. Deploy from GitHub repo
+3. Add PostgreSQL database
+4. Add API service (Root Directory: `apps/api`)
+5. Add Web service (Root Directory: `apps/web`)
+6. Configure environment variables
+7. Generate domains for both services
+
+See `railway.toml` files in each app directory for config.
+
+---
+
+## Database Migrations
+
+After first deploy, run migrations:
+
+```bash
+# Render
+render ssh tax-agent-api
+npx prisma db push
+
+# Railway
+railway run -s tax-agent-api npx prisma db push
+```
+
 ## Troubleshooting
 
-### Database migrations
-If you see "column not found" errors, run:
-```bash
-railway run npx prisma db push
-```
+### "Column not found" errors
+Database schema is out of sync. Run `prisma db push`.
 
-### Check logs
-```bash
-railway logs -s tax-agent-api
-railway logs -s tax-agent-web
-```
+### API returns 500 errors
+Check logs for actual error message. Common issues:
+- Missing environment variables
+- Database connection failed
+- Storage provider not configured
+
+### Web can't reach API
+- Check CORS: `FRONTEND_URL` must match web domain
+- Check `VITE_API_URL` is set correctly (needs rebuild)
