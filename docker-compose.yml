@@ -23,6 +23,8 @@ services:
     container_name: tax-agent-api
     ports:
       - "3009:3009"
+    env_file:
+      - ./.env
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/tax_agent
       PORT: "3009"
