@@ -5,19 +5,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Development (Monorepo: Hono API + React Web)
-docker compose up -d                           # Start PostgreSQL
-cd apps/api && npm run dev                     # Start API server (localhost:3001)
-cd apps/web && npm run dev                     # Start web server (localhost:3010)
+# Development (all-in-one with Docker Compose)
+./bin/dev                                      # Start everything (API + Web + PostgreSQL)
+./bin/dev --tunnel                             # Start with Cloudflare tunnel for webhooks
+docker compose down                            # Stop all services
+docker compose logs -f api                     # Tail API logs
+docker compose logs -f web                     # Tail web logs
 
-# Or use the dev script (starts both)
-./bin/dev.sh
+# Services (after running ./bin/dev)
+# - API:        http://localhost:3009
+# - Web:        http://localhost:3010
+# - PostgreSQL: localhost:5432
+# - Tunnel:     https://xxx.ngrok-free.app (when --tunnel enabled)
+# - ngrok UI:   http://localhost:4040 (inspect requests)
 
-# Database
-cd apps/api && npx prisma generate             # Regenerate Prisma client
-cd apps/api && npx prisma db push              # Push schema to database (dev only)
+# Database (run inside api container or locally with DATABASE_URL set)
+docker compose exec api npx prisma studio      # Open Prisma Studio
+docker compose exec api npx prisma db push     # Push schema changes
+docker compose exec api npx prisma generate    # Regenerate client
 
-# Build
+# Build for production
 cd apps/api && npm run build
 cd apps/web && npm run build
 
@@ -157,18 +164,39 @@ packages/
 - Extract Next.js API routes to Hono routes (`app.get()`, `app.post()`)
 - Move `src/lib/` to `apps/api/src/lib/` (business logic)
 - Create React SPA pages from Next.js pages (remove `use client`, add React Router)
-- Use Docker Compose for local dev with both services
+- Use Docker Compose for local dev (`Dockerfile.dev` for each service with hot reload)
 
 ### Docker Local Development
 
-**Prisma Client Generation**: Always regenerate Prisma client before building:
-```bash
-cd apps/api && npx prisma generate
+**Full Stack with Docker Compose**: The dev environment runs all services in containers with hot reload:
+
+```yaml
+# docker-compose.yml services:
+postgres:  # PostgreSQL 16, healthcheck enabled
+api:       # Hono API with tsx watch (Dockerfile.dev)
+web:       # Vite React with HMR (Dockerfile.dev)
 ```
 
-**Database Sync Issues**: If you get "column not found" errors, ensure schema is synced:
+**Volume Mounts for Hot Reload**:
+- `apps/api/src` and `apps/api/prisma` are mounted into the API container
+- `apps/web/src` and `apps/web/index.html` are mounted into the web container
+- Changes to source files trigger automatic reload
+
+**Database Commands** (run inside container):
 ```bash
-npx prisma db push
+docker compose exec api npx prisma generate    # Regenerate client after schema changes
+docker compose exec api npx prisma db push     # Push schema to database
+docker compose exec api npx prisma studio      # Visual database browser
+```
+
+**Rebuilding Containers** (after package.json changes):
+```bash
+docker compose up --build
+```
+
+**Database Sync Issues**: If you get "column not found" errors, the schema is out of sync:
+```bash
+docker compose exec api npx prisma db push
 ```
 
 ### Render Deployment (added 2026-01-31)
