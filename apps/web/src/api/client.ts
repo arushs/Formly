@@ -77,8 +77,20 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   })
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }))
-    throw new Error(error.error || `HTTP ${response.status}`)
+    const errorBody = await response.json().catch(() => ({ error: 'Unknown error' }))
+    // Handle different error formats (string, object with message, Zod validation errors)
+    let errorMessage: string
+    if (typeof errorBody.error === 'string') {
+      errorMessage = errorBody.error
+    } else if (errorBody.error?.message) {
+      errorMessage = errorBody.error.message
+    } else if (errorBody.success === false && errorBody.error) {
+      // Zod validation format from @hono/zod-validator
+      errorMessage = 'Validation failed: ' + JSON.stringify(errorBody.error)
+    } else {
+      errorMessage = `HTTP ${response.status}`
+    }
+    throw new Error(errorMessage)
   }
 
   return response.json()
