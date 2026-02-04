@@ -43,7 +43,8 @@ export const reconciliationServer = createSdkMcpServer({
                 title: item.title,
                 priority: item.priority,
                 status: item.status,
-                documentIds: item.documentIds
+                documentIds: item.documentIds,
+                expectedDocumentType: item.expectedDocumentType || null
               })),
               documents: documents.map(doc => ({
                 id: doc.id,
@@ -415,10 +416,17 @@ Your workflow:
 5. Check if the engagement is ready (100% complete or all high-priority items done)
 6. If ready, generate the prep brief and update status to READY
 
-Be accurate in matching documents to checklist items. Consider document type when matching:
-- W-2 documents match to "W-2" checklist items
-- 1099 documents match to corresponding 1099 items
-- Receipts and statements match to expense/deduction items`
+MATCHING RULES - USE expectedDocumentType:
+Each checklist item has an "expectedDocumentType" field. Match documents to items where:
+- Document's documentType EXACTLY matches the item's expectedDocumentType
+- For example: A document with type "W-2" matches items with expectedDocumentType "W-2"
+- A document with type "1099-NEC" matches items with expectedDocumentType "1099-NEC"
+
+STATUS UPDATE RULES:
+- When a document matches an item: set item status to "received" if doc has issues, "complete" if no issues
+- A document is considered "good" if it has no issues OR has been approved by accountant (approved: true)
+
+Be precise - only match documents where the types align exactly.`
 
   const prompt = context.trigger === 'document_assessed'
     ? `A new document was assessed: ${context.documentType} (ID: ${context.documentId}). Match it to the appropriate checklist items, update statuses, and check if the engagement is ready.`

@@ -12,7 +12,26 @@ export async function generateChecklist(intakeData: unknown, taxYear: number): P
     messages: [
       {
         role: 'system',
-        content: `You are a tax document intake specialist. Generate a checklist of documents needed based on the client's intake form responses. Tax year: ${taxYear}. For each item include: id (item_001, etc), title, why (client-friendly explanation), priority (high/medium/low). Set status to "pending" and documentIds to empty array.`,
+        content: `You are a tax document intake specialist. Generate a checklist of documents needed based on the client's intake form responses. Tax year: ${taxYear}.
+
+For each item include:
+- id: item_001, item_002, etc.
+- title: Human-friendly description (e.g., "W-2 from ABC Corp")
+- why: Client-friendly explanation of why this document is needed
+- priority: high/medium/low
+- status: "pending"
+- documentIds: empty array []
+- expectedDocumentType: The document type that will satisfy this item. Must be one of: W-2, 1099-NEC, 1099-MISC, 1099-INT, K-1, RECEIPT, STATEMENT, OTHER
+
+The expectedDocumentType is CRITICAL for automatic document matching. Use the exact type that will be uploaded:
+- Employment income → W-2
+- Freelance/contractor income → 1099-NEC
+- Interest income → 1099-INT
+- Miscellaneous income → 1099-MISC
+- Partnership/S-Corp distributions → K-1
+- Business expenses, charitable donations → RECEIPT
+- Bank/investment statements → STATEMENT
+- Other documents → OTHER`,
       },
       { role: 'user', content: JSON.stringify(intakeData) },
     ],

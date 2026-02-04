@@ -11,6 +11,7 @@ export const ChecklistItemSchema = z.object({
   priority: z.enum(['high', 'medium', 'low']),
   status: z.enum(['pending', 'received', 'complete']),
   documentIds: z.array(z.string()),
+  expectedDocumentType: z.enum(['W-2', '1099-NEC', '1099-MISC', '1099-INT', 'K-1', 'RECEIPT', 'STATEMENT', 'OTHER']).optional(),
 })
 
 export const DocumentSchema = z.object({
