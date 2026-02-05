@@ -86,9 +86,70 @@ app.post(
   }
 )
 
+// GET /api/engagements/:engagementId/documents/:docId/email-preview
+// Generate email content for preview/editing
+app.get(
+  '/:engagementId/documents/:docId/email-preview',
+  async (c) => {
+    const { engagementId, docId } = c.req.param()
+
+    const engagement = await prisma.engagement.findUnique({
+      where: { id: engagementId }
+    })
+    if (!engagement) {
+      return c.json({ error: 'Engagement not found' }, 404)
+    }
+
+    const documents = (engagement.documents as Document[]) || []
+    const doc = documents.find(d => d.id === docId)
+    if (!doc) {
+      return c.json({ error: 'Document not found' }, 404)
+    }
+
+    if (doc.issues.length === 0) {
+      return c.json({ error: 'Document has no issues to report' }, 400)
+    }
+
+    // Parse issues for email generation
+    const parsedIssues = doc.issues.map(issueStr => {
+      const parsed = parseIssue(issueStr)
+      return {
+        severity: parsed.severity,
+        type: parsed.type,
+        description: parsed.description,
+        suggestedAction: getSuggestedAction(parsed)
+      }
+    })
+
+    try {
+      const emailContent = await generateFollowUpEmail({
+        clientName: engagement.clientName,
+        taxYear: engagement.taxYear,
+        fileName: doc.fileName,
+        issues: parsedIssues
+      })
+
+      return c.json({
+        subject: emailContent.subject,
+        body: emailContent.body,
+        recipientEmail: engagement.clientEmail,
+        uploadUrl: engagement.storageFolderUrl
+      })
+    } catch (error) {
+      console.error('Failed to generate email preview:', error)
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Failed to generate email' },
+        500
+      )
+    }
+  }
+)
+
 // POST /api/engagements/:engagementId/documents/:docId/send-followup
 const SendFollowUpSchema = z.object({
-  email: z.string().email().optional()
+  email: z.string().email().optional(),
+  subject: z.string().min(1).optional(),
+  body: z.string().min(1).optional()
 })
 
 app.post(
@@ -111,26 +172,30 @@ app.post(
       return c.json({ error: 'Document not found' }, 404)
     }
 
-    if (doc.issues.length === 0) {
-      return c.json({ error: 'Document has no issues to report' }, 400)
-    }
-
     // Use provided email or fall back to client email
     const recipientEmail = body.email || engagement.clientEmail
 
-    // Parse issues for Haiku email generation
-    const parsedIssues = doc.issues.map(issueStr => {
-      const parsed = parseIssue(issueStr)
-      return {
-        severity: parsed.severity,
-        type: parsed.type,
-        description: parsed.description,
-        suggestedAction: getSuggestedAction(parsed)
-      }
-    })
+    // If subject and body are provided, use them directly
+    // Otherwise, generate them
+    let emailSubject = body.subject
+    let emailBody = body.body
 
-    try {
-      // Generate personalized email using Haiku
+    if (!emailSubject || !emailBody) {
+      if (doc.issues.length === 0) {
+        return c.json({ error: 'Document has no issues to report' }, 400)
+      }
+
+      // Parse issues for email generation
+      const parsedIssues = doc.issues.map(issueStr => {
+        const parsed = parseIssue(issueStr)
+        return {
+          severity: parsed.severity,
+          type: parsed.type,
+          description: parsed.description,
+          suggestedAction: getSuggestedAction(parsed)
+        }
+      })
+
       const emailContent = await generateFollowUpEmail({
         clientName: engagement.clientName,
         taxYear: engagement.taxYear,
@@ -138,12 +203,17 @@ app.post(
         issues: parsedIssues
       })
 
+      emailSubject = emailSubject || emailContent.subject
+      emailBody = emailBody || emailContent.body
+    }
+
+    try {
       const uploadUrl = engagement.storageFolderUrl
 
-      // Build HTML email from Haiku-generated content
+      // Build HTML email
       const emailHtml = `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-          <p>${emailContent.body.replace(/\n/g, '<br>')}</p>
+          <p>${emailBody.replace(/\n/g, '<br>')}</p>
           <p style="margin: 24px 0;">
             <a href="${uploadUrl}"
                style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
@@ -155,7 +225,7 @@ app.post(
 
       await sendEmail(
         recipientEmail,
-        { subject: emailContent.subject, html: emailHtml }
+        { subject: emailSubject, html: emailHtml }
       )
       return c.json({ success: true, message: `Follow-up email sent to ${recipientEmail}` })
     } catch (error) {

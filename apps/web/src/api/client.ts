@@ -138,14 +138,28 @@ export async function reclassifyDocument(
   })
 }
 
+export interface EmailPreview {
+  subject: string
+  body: string
+  recipientEmail: string
+  uploadUrl: string
+}
+
+export async function getEmailPreview(
+  engagementId: string,
+  docId: string
+): Promise<EmailPreview> {
+  return fetchApi(`/api/engagements/${engagementId}/documents/${docId}/email-preview`)
+}
+
 export async function sendDocumentFollowUp(
   engagementId: string,
   docId: string,
-  email?: string
+  options: { email?: string; subject?: string; body?: string }
 ): Promise<{ success: boolean; message: string }> {
   return fetchApi(`/api/engagements/${engagementId}/documents/${docId}/send-followup`, {
     method: 'POST',
-    body: JSON.stringify({ email }),
+    body: JSON.stringify(options),
   })
 }
 

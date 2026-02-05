@@ -6,13 +6,15 @@ import {
   approveDocument,
   reclassifyDocument,
   sendDocumentFollowUp,
+  getEmailPreview,
   getFriendlyIssues,
   DOCUMENT_TYPES,
   type Engagement,
   type ChecklistItem,
   type Document,
   type Reconciliation,
-  type FriendlyIssue
+  type FriendlyIssue,
+  type EmailPreview
 } from '../api/client'
 import { hasErrors, hasWarnings } from '../utils/issues'
 
@@ -97,12 +99,12 @@ export default function EngagementDetail() {
     }
   }
 
-  async function handleSendFollowUp(docId: string, email: string) {
+  async function handleSendFollowUp(docId: string, options: { email: string; subject: string; body: string }) {
     if (!id || !engagement) return
 
     setActionInProgress('email')
     try {
-      const result = await sendDocumentFollowUp(id, docId, email)
+      const result = await sendDocumentFollowUp(id, docId, options)
       setError(null) // Clear any previous errors
       alert(result.message || 'Follow-up email sent successfully')
     } catch (err) {
@@ -374,7 +376,7 @@ interface DocumentDetailProps {
   clientEmail: string
   onApprove: (docId: string) => Promise<void>
   onReclassify: (docId: string, newType: string) => Promise<void>
-  onSendEmail: (docId: string, email: string) => Promise<void>
+  onSendEmail: (docId: string, options: { email: string; subject: string; body: string }) => Promise<void>
   actionInProgress: string | null
 }
 
@@ -391,7 +393,11 @@ function DocumentDetail({
   const [friendlyIssues, setFriendlyIssues] = useState<FriendlyIssue[]>([])
   const [loadingIssues, setLoadingIssues] = useState(false)
   const [showEmailModal, setShowEmailModal] = useState(false)
+  const [emailPreview, setEmailPreview] = useState<EmailPreview | null>(null)
+  const [loadingEmail, setLoadingEmail] = useState(false)
   const [emailInput, setEmailInput] = useState(clientEmail)
+  const [subjectInput, setSubjectInput] = useState('')
+  const [bodyInput, setBodyInput] = useState('')
   const hasUnresolvedIssues = doc.issues.length > 0 && doc.approved !== true
 
   // Fetch friendly issues when document changes
@@ -489,9 +495,23 @@ function DocumentDetail({
         {hasUnresolvedIssues && (
           <div className="pt-4 border-t space-y-2">
             <button
-              onClick={() => {
-                setEmailInput(clientEmail)
+              onClick={async () => {
+                setLoadingEmail(true)
                 setShowEmailModal(true)
+                try {
+                  const preview = await getEmailPreview(engagementId, doc.id)
+                  setEmailPreview(preview)
+                  setEmailInput(preview.recipientEmail)
+                  setSubjectInput(preview.subject)
+                  setBodyInput(preview.body)
+                } catch (err) {
+                  console.error('Failed to load email preview:', err)
+                  setEmailInput(clientEmail)
+                  setSubjectInput(`Action Needed: Document Issue - ${doc.fileName}`)
+                  setBodyInput(`Hi,\n\nWe found some issues with ${doc.fileName} that need your attention.\n\nPlease upload a corrected version.\n\nThank you.`)
+                } finally {
+                  setLoadingEmail(false)
+                }
               }}
               disabled={actionInProgress !== null}
               className="w-full py-2 px-4 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -546,38 +566,86 @@ function DocumentDetail({
       {/* Email Modal */}
       {showEmailModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4">Send Follow-up Email</h3>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Recipient Email
-              </label>
-              <input
-                type="email"
-                value={emailInput}
-                onChange={(e) => setEmailInput(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="client@example.com"
-              />
-            </div>
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => setShowEmailModal(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  onSendEmail(doc.id, emailInput)
-                  setShowEmailModal(false)
-                }}
-                disabled={!emailInput || actionInProgress === 'email'}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {actionInProgress === 'email' ? 'Sending...' : 'Send Email'}
-              </button>
-            </div>
+
+            {loadingEmail ? (
+              <div className="py-8 text-center text-gray-500">
+                <div className="animate-spin inline-block w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full mb-2"></div>
+                <p>Generating email...</p>
+              </div>
+            ) : (
+              <>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    To
+                  </label>
+                  <input
+                    type="email"
+                    value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="client@example.com"
+                  />
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Subject
+                  </label>
+                  <input
+                    type="text"
+                    value={subjectInput}
+                    onChange={(e) => setSubjectInput(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Email subject"
+                  />
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Message
+                  </label>
+                  <textarea
+                    value={bodyInput}
+                    onChange={(e) => setBodyInput(e.target.value)}
+                    rows={8}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
+                    placeholder="Email body"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    An "Upload Document" button will be added automatically.
+                  </p>
+                </div>
+
+                <div className="flex gap-3 justify-end">
+                  <button
+                    onClick={() => {
+                      setShowEmailModal(false)
+                      setEmailPreview(null)
+                    }}
+                    className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      onSendEmail(doc.id, {
+                        email: emailInput,
+                        subject: subjectInput,
+                        body: bodyInput
+                      })
+                      setShowEmailModal(false)
+                      setEmailPreview(null)
+                    }}
+                    disabled={!emailInput || !subjectInput || !bodyInput || actionInProgress === 'email'}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {actionInProgress === 'email' ? 'Sending...' : 'Send Email'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
