@@ -14,8 +14,7 @@ import {
   type ChecklistItem,
   type Document,
   type Reconciliation,
-  type FriendlyIssue,
-  type EmailPreview
+  type FriendlyIssue
 } from '../api/client'
 import { hasErrors, hasWarnings } from '../utils/issues'
 
@@ -352,7 +351,7 @@ export default function EngagementDetail() {
             )}
           </div>
           {engagement.prepBrief ? (
-            <div className="p-4 bg-gray-50 rounded-lg prose prose-sm max-w-none prose-headings:mt-4 prose-headings:mb-2 prose-p:my-2 prose-ul:my-2 prose-li:my-0">
+            <div className="prep-brief p-4 bg-gray-50 rounded-lg">
               <Markdown>{engagement.prepBrief}</Markdown>
             </div>
           ) : (
@@ -392,7 +391,6 @@ function DocumentDetail({
   const [friendlyIssues, setFriendlyIssues] = useState<FriendlyIssue[]>([])
   const [loadingIssues, setLoadingIssues] = useState(false)
   const [showEmailModal, setShowEmailModal] = useState(false)
-  const [emailPreview, setEmailPreview] = useState<EmailPreview | null>(null)
   const [loadingEmail, setLoadingEmail] = useState(false)
   const [emailInput, setEmailInput] = useState(clientEmail)
   const [subjectInput, setSubjectInput] = useState('')
@@ -507,7 +505,6 @@ function DocumentDetail({
                 setShowEmailModal(true)
                 try {
                   const preview = await getEmailPreview(engagementId, doc.id)
-                  setEmailPreview(preview)
                   setEmailInput(preview.recipientEmail)
                   setSubjectInput(preview.subject)
                   setBodyInput(preview.body)
@@ -627,10 +624,7 @@ function DocumentDetail({
 
                 <div className="flex gap-3 justify-end">
                   <button
-                    onClick={() => {
-                      setShowEmailModal(false)
-                      setEmailPreview(null)
-                    }}
+                    onClick={() => setShowEmailModal(false)}
                     className="px-4 py-2 text-gray-600 hover:text-gray-800"
                   >
                     Cancel
@@ -643,7 +637,6 @@ function DocumentDetail({
                         body: bodyInput
                       })
                       setShowEmailModal(false)
-                      setEmailPreview(null)
                     }}
                     disabled={!emailInput || !subjectInput || !bodyInput || actionInProgress === 'email'}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
