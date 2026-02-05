@@ -29,7 +29,7 @@ cd apps/api && npm run build
 cd apps/web && npm run build
 
 # Deploy to Render
-git push origin main                           # Auto-deploys via render.yaml
+git push origin production                     # Auto-deploys via render.yaml (NOT main/master)
 ```
 
 ## Architecture
@@ -383,3 +383,33 @@ const response = await this.client.filesDownloadZip({ path: folderPath })
 console.log(`[DROPBOX] Listing folder: ${path}`)
 console.log(`[DROPBOX] Found ${entries.length} entries`)
 console.log(`[DROPBOX] Downloading: ${entry.name} (${entry.size} bytes)`)
+```
+
+### Render Deployment Branch (added 2026-02-04)
+
+**CRITICAL: Render deploys from `production` branch, not `master`**. When pushing fixes:
+```bash
+# Wrong - this won't trigger a deploy
+git push origin master
+
+# Correct - merge to production and push
+git checkout production && git merge master --no-edit && git push origin production
+git checkout master
+```
+
+The `render.yaml` `preDeployCommand` runs BEFORE the Docker container starts. If you need Prisma flags like `--accept-data-loss`, add them there, not in `docker-entrypoint.sh`.
+
+### Dropbox Cursor Reset (added 2026-02-04)
+
+**Handle 409 "reset" errors**: Dropbox cursors (storagePageToken) can expire. When this happens, `filesListFolderContinue` returns a 409 error with `error_summary: 'reset/'`. Handle by catching and falling through to fresh sync:
+```typescript
+try {
+  await dbx.filesListFolderContinue({ cursor: pageToken })
+} catch (error) {
+  if (error.status === 409 && error.error?.error_summary?.includes('reset')) {
+    console.log('[DROPBOX] Cursor expired, restarting sync from scratch')
+    // Fall through to initial sync
+  } else {
+    throw error
+  }
+}
