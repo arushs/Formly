@@ -12,8 +12,8 @@ export function initScheduler() {
     console.warn('[SCHEDULER] CRON_SECRET not set, scheduled tasks will fail auth')
   }
 
-  // Poll storage for new documents every minute
-  cron.schedule('* * * * *', async () => {
+  // Poll storage for new documents every 2 minutes
+  cron.schedule('*/2 * * * *', async () => {
     console.log('[SCHEDULER] Running poll-storage job')
     try {
       const response = await fetch(`${apiUrl}/api/cron/poll-storage`, {
@@ -41,6 +41,6 @@ export function initScheduler() {
   })
 
   console.log('[SCHEDULER] Cron jobs initialized:')
-  console.log('  - poll-storage: every minute')
+  console.log('  - poll-storage: every 2 minutes')
   console.log('  - check-reminders: daily at 9 AM UTC')
 }
