@@ -28,6 +28,13 @@ docker compose exec api npx prisma generate    # Regenerate client
 cd apps/api && npm run build
 cd apps/web && npm run build
 
+# Testing
+cd apps/api && npm test              # Run API tests (194 tests)
+cd apps/web && npm test              # Run Web tests (67 tests)
+cd apps/api && npm run test:coverage # API coverage report
+cd apps/web && npm run test:coverage # Web coverage report
+cd apps/web && npx playwright test   # E2E tests (requires app running)
+
 # Deploy to Render
 git push origin production                     # Auto-deploys via render.yaml (NOT main/master)
 ```
@@ -60,23 +67,30 @@ All data lives in one `Engagement` model with JSONB columns:
 
 **API (`apps/api/src/`):**
 - `routes/engagements.ts` - CRUD operations for engagements
+- `routes/documents.ts` - Document approval, reclassification, email preview
 - `routes/webhooks.ts` - Typeform webhook handler
 - `routes/cron.ts` - Cron endpoints (poll-storage, check-reminders, retry-stuck)
 - `lib/openai.ts` - LLM functions: `generateChecklist`, `classifyDocument`, `reconcile`, `generatePrepBrief`
 - `lib/storage/` - Storage provider abstraction (SharePoint, Google Drive, Dropbox)
 - `lib/agents/assessment.ts` - Document assessment agent
+- `lib/agents/dispatcher.ts` - Event dispatch for agent workflows
+- `lib/agents/reconciliation.ts` - Document-checklist matching agent
+- `lib/issues.ts` - Issue string parsing and helpers
 - `scheduler.ts` - node-cron job definitions
 - `index.ts` - Hono app entry point
+- `test/` - Test factories, mocks, and setup
 
 **Web (`apps/web/src/`):**
 - `pages/Dashboard.tsx` - Main engagement list
 - `pages/NewEngagement.tsx` - Create engagement form
 - `pages/EngagementDetail.tsx` - Single engagement view
+- `api/client.ts` - API client functions
+- `utils/issues.ts` - Frontend issue parsing utilities
 
 ### Background Processing
 
 Uses `node-cron` for scheduled jobs (runs in the same container):
-- Every 5 minutes: Poll storage for new documents
+- Every 2 minutes: Poll storage for new documents
 - Daily at 9 AM: Send reminder emails
 - Every minute: Retry stuck documents (in_progress > 5 min)
 
