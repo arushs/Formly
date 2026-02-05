@@ -50,10 +50,17 @@ export const dropboxClient: StorageClient = {
           nextPageToken: response.result.cursor,
         }
       } catch (error: unknown) {
-        // Handle cursor reset - Dropbox returns 409 with 'reset' tag when cursor expires
-        const dropboxError = error as { status?: number; error?: { error_summary?: string } }
-        if (dropboxError.status === 409 && dropboxError.error?.error_summary?.includes('reset')) {
-          console.log('[DROPBOX] Cursor expired, restarting sync from scratch')
+        // Handle cursor reset - Dropbox returns 409 when cursor expires
+        // Make check robust against different SDK versions/error structures
+        const errorStr = String(error)
+        const dropboxError = error as { status?: number; error?: { error_summary?: string; error?: { '.tag'?: string } } }
+        const isReset = errorStr.includes('409') ||
+          dropboxError.status === 409 ||
+          dropboxError.error?.error_summary?.includes('reset') ||
+          dropboxError.error?.error?.['.tag'] === 'reset'
+
+        if (isReset) {
+          console.log('[DROPBOX] Cursor expired or invalid, restarting sync from scratch')
           // Fall through to initial sync below
         } else {
           throw error
