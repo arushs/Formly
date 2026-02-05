@@ -81,7 +81,8 @@ export const dropboxClient: StorageClient = {
         const files: StorageFile[] = response.result.entries
           .filter(entry => entry['.tag'] === 'file')
           .map(entry => ({
-            id: (entry as { id: string }).id,
+            // For shared folders, use path_display as ID since download needs the path
+            id: (entry as { path_display: string }).path_display || `/${entry.name}`,
             name: entry.name,
             mimeType: getMimeType(entry.name),
           }))
@@ -123,26 +124,22 @@ export const dropboxClient: StorageClient = {
     console.log(`[DROPBOX] Downloading file: ${fileId}${sharedLinkUrl ? ' (shared folder)' : ''}`)
 
     try {
-      // For shared folders accessed via URL (not added to user's Dropbox),
-      // we need to use sharingGetSharedLinkFile with the file path
+      // For shared folders accessed via URL, use sharingGetSharedLinkFile
+      // The fileId for shared folders is the path (e.g., /filename.jpg) stored during sync
       if (sharedLinkUrl) {
-        // First get the file path from the file ID
-        // When listing shared folders, entries have path_display
-        const metadataResponse = await dbx.filesGetMetadata({
-          path: fileId,
-          shared_link: { url: sharedLinkUrl }
+        console.log(`[DROPBOX] Using shared link download with path: ${fileId}`)
+
+        const response = await dbx.sharingGetSharedLinkFile({
+          url: sharedLinkUrl,
+          path: fileId  // fileId is actually the path for shared folders
         })
 
-        if (metadataResponse.result['.tag'] !== 'file') {
-          throw new Error('Not a file')
-        }
+        const result = response.result as unknown as { fileBinary: Buffer; name: string; size: number }
+        const fileBlob = result.fileBinary
+        const fileName = result.name
+        const size = result.size || fileBlob.length
 
-        const fileMeta = metadataResponse.result as { name: string; size: number; path_display?: string }
-        const fileName = fileMeta.name
-        const size = fileMeta.size
-        const filePath = fileMeta.path_display || `/${fileName}`
-
-        console.log(`[DROPBOX] File metadata: ${fileName}, ${size} bytes, path: ${filePath}`)
+        console.log(`[DROPBOX] Downloaded ${fileBlob.length} bytes via shared link`)
 
         // Validate file size
         if (size > MAX_FILE_SIZE) {
@@ -151,15 +148,6 @@ export const dropboxClient: StorageClient = {
               `exceeds ${MAX_FILE_SIZE / 1024 / 1024}MB limit. Please compress and re-upload.`
           )
         }
-
-        // Download using sharingGetSharedLinkFile - this works for shared folders not added to Dropbox
-        const response = await dbx.sharingGetSharedLinkFile({
-          url: sharedLinkUrl,
-          path: filePath
-        })
-
-        const fileBlob = (response.result as unknown as { fileBinary: Buffer }).fileBinary
-        console.log(`[DROPBOX] Downloaded ${fileBlob.length} bytes via shared link`)
 
         return {
           buffer: Buffer.from(fileBlob),
