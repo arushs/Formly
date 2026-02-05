@@ -468,10 +468,25 @@ Be precise - only match documents where the types align exactly.`
 
     if (updatedEngagement) {
       const reconciliation = updatedEngagement.reconciliation as Reconciliation | null
+      const documents = (updatedEngagement.documents as Document[] | null) ?? []
+
       if (reconciliation) {
         completionPercentage = reconciliation.completionPercentage
       }
-      isReady = updatedEngagement.status === 'READY'
+
+      // Deterministic status update: if 100% complete and no unresolved issues, mark as READY
+      const hasUnresolvedIssues = documents.some(d => d.issues.length > 0 && d.approved !== true)
+
+      if (completionPercentage === 100 && !hasUnresolvedIssues && updatedEngagement.status !== 'READY') {
+        await prisma.engagement.update({
+          where: { id: context.engagementId },
+          data: { status: 'READY' }
+        })
+        isReady = true
+        console.log(`[RECONCILIATION] Auto-transitioned ${context.engagementId} to READY (100% complete, no unresolved issues)`)
+      } else {
+        isReady = updatedEngagement.status === 'READY'
+      }
     }
 
     // Log agent activity
