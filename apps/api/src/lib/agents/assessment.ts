@@ -60,6 +60,8 @@ export const assessmentServer = createSdkMcpServer({
             { driveId: driveId || undefined, sharedLinkUrl: folderUrl || undefined }
           )
 
+          console.log(`[ASSESSMENT] Downloaded ${fileName} (${size} bytes, ${mimeType})`)
+
           // Check if file type is supported
           if (!isSupportedFileType(mimeType)) {
             return {
@@ -100,6 +102,8 @@ export const assessmentServer = createSdkMcpServer({
             ],
           }
         } catch (error) {
+          // Log the full error for debugging
+          console.error(`[ASSESSMENT] extract_document failed for ${args.fileName}:`, error)
           return {
             content: [
               {
@@ -143,6 +147,8 @@ export const assessmentServer = createSdkMcpServer({
             }]
           }
         } catch (error) {
+          // Log the full error for debugging
+          console.error(`[ASSESSMENT] classify_document failed for ${args.fileName}:`, error)
           return {
             content: [{ type: 'text', text: `Error classifying document: ${error instanceof Error ? error.message : 'Unknown error'}` }],
             isError: true

@@ -69,6 +69,14 @@ export async function extractDocument(options: OCROptions): Promise<OCRResult> {
     ? { documentUrl: options }
     : options
 
+  // Check if API key is configured
+  if (!process.env.MISTRAL_API_KEY) {
+    console.error('[OCR] MISTRAL_API_KEY is not set!')
+    throw new Error('MISTRAL_API_KEY environment variable is not configured')
+  }
+
+  console.log(`[OCR] Starting extraction (${documentUrl.slice(0, 50)}...)`)
+
   return withRetry(async () => {
     const response = await mistral.ocr.process({
       model: 'mistral-ocr-latest',
