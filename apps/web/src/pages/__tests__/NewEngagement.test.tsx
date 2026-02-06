@@ -345,4 +345,73 @@ describe('NewEngagement', () => {
       expect(dropboxBtn).toHaveClass('bg-blue-50')
     })
   })
+
+  // Phase 3: OAuth Flow Tests
+  describe('OAuth Flow', () => {
+    it('shows input mode tabs when provider is selected', async () => {
+      const user = userEvent.setup()
+      renderWithRouter(<NewEngagement />)
+
+      await user.click(screen.getByRole('button', { name: 'Dropbox' }))
+
+      expect(screen.getByRole('button', { name: 'Paste URL' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Connect Account' })).toBeInTheDocument()
+    })
+
+    it('shows URL input by default', async () => {
+      const user = userEvent.setup()
+      renderWithRouter(<NewEngagement />)
+
+      await user.click(screen.getByRole('button', { name: 'Dropbox' }))
+
+      // URL input should be visible
+      expect(screen.getByLabelText(/Storage Folder URL/i)).toBeInTheDocument()
+    })
+
+    it('shows Connect button in OAuth mode', async () => {
+      const user = userEvent.setup()
+      renderWithRouter(<NewEngagement />)
+
+      await user.click(screen.getByRole('button', { name: 'Dropbox' }))
+      await user.click(screen.getByRole('button', { name: 'Connect Account' }))
+
+      expect(screen.getByRole('button', { name: 'Connect Dropbox' })).toBeInTheDocument()
+    })
+
+    it('shows Connect button for each provider', async () => {
+      const user = userEvent.setup()
+      renderWithRouter(<NewEngagement />)
+
+      // Test Dropbox
+      await user.click(screen.getByRole('button', { name: 'Dropbox' }))
+      await user.click(screen.getByRole('button', { name: 'Connect Account' }))
+      expect(screen.getByRole('button', { name: 'Connect Dropbox' })).toBeInTheDocument()
+
+      // Test Google Drive
+      await user.click(screen.getByRole('button', { name: 'Google Drive' }))
+      expect(screen.getByRole('button', { name: 'Connect Google Drive' })).toBeInTheDocument()
+
+      // Test SharePoint
+      await user.click(screen.getByRole('button', { name: 'SharePoint/OneDrive' }))
+      expect(screen.getByRole('button', { name: 'Connect SharePoint/OneDrive' })).toBeInTheDocument()
+    })
+
+    it('switches between URL and OAuth modes', async () => {
+      const user = userEvent.setup()
+      renderWithRouter(<NewEngagement />)
+
+      await user.click(screen.getByRole('button', { name: 'Dropbox' }))
+      
+      // Start in URL mode
+      expect(screen.getByLabelText(/Storage Folder URL/i)).toBeInTheDocument()
+      
+      // Switch to OAuth mode
+      await user.click(screen.getByRole('button', { name: 'Connect Account' }))
+      expect(screen.getByRole('button', { name: 'Connect Dropbox' })).toBeInTheDocument()
+      
+      // Switch back to URL mode
+      await user.click(screen.getByRole('button', { name: 'Paste URL' }))
+      expect(screen.getByLabelText(/Storage Folder URL/i)).toBeInTheDocument()
+    })
+  })
 })
