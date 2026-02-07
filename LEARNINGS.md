@@ -111,4 +111,47 @@ Upload detected → Download file → OCR (Mistral) → Classify (GPT-4o) → Up
 
 ---
 
-*Last updated: 2026-02-06*
+---
+
+## Data Cleanup
+
+### Test Data Identification
+Pattern-based detection for test engagements:
+- **Emails**: `test@`, `demo@`, `@example.com`, `fake@`, `asdf@`
+- **Names**: starts with "test", "demo", "sample", "fake"
+- **Other**: names < 3 chars, repeated characters (e.g., "aaaa")
+
+### Cleanup Options
+
+**CLI Script:**
+```bash
+# Preview what would be deleted
+cd apps/api && npm run cleanup
+
+# Actually delete
+cd apps/api && npm run cleanup:confirm
+
+# Or directly
+npx tsx scripts/cleanup-test-data.ts --confirm
+```
+
+**API Endpoint:**
+```bash
+# Preview test data
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  https://your-api/api/admin/test-data
+
+# Delete all test data
+curl -X DELETE -H "Authorization: Bearer $CRON_SECRET" \
+  https://your-api/api/admin/test-data
+
+# Delete specific engagement
+curl -X DELETE -H "Authorization: Bearer $CRON_SECRET" \
+  https://your-api/api/admin/engagements/:id
+```
+
+**Protected by**: `ADMIN_SECRET` or `CRON_SECRET` env var
+
+---
+
+*Last updated: 2026-02-07*

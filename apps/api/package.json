@@ -11,7 +11,9 @@
     "db:push": "prisma db push",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "cleanup": "tsx ../../scripts/cleanup-test-data.ts",
+    "cleanup:confirm": "tsx ../../scripts/cleanup-test-data.ts --confirm"
   },
   "dependencies": {
     "@azure/identity": "^4.13.0",

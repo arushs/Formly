@@ -8,6 +8,7 @@ import documents from './routes/documents.js'
 import webhooks from './routes/webhooks.js'
 import cron from './routes/cron.js'
 import oauth from './routes/oauth.js'
+import admin from './routes/admin.js'
 import { initScheduler } from './scheduler.js'
 
 const app = new Hono()
@@ -29,6 +30,7 @@ app.route('/api/engagements', documents) // Document-specific actions
 app.route('/api/webhooks', webhooks)
 app.route('/api/cron', cron)
 app.route('/api/oauth', oauth)
+app.route('/api/admin', admin)
 
 // Start server
 const port = parseInt(process.env.PORT || '3009', 10)
