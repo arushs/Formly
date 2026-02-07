@@ -6,7 +6,7 @@ import { sendEmail } from '../lib/email.js'
 import { parseIssue, getSuggestedAction } from '../lib/issues.js'
 import { generateFollowUpEmail, generateFriendlyIssues } from '../lib/openai.js'
 import { runReconciliationAgent } from '../lib/agents/reconciliation.js'
-import { runAssessmentAgent } from '../lib/agents/assessment.js'
+import { runAssessmentFast } from '../lib/agents/assessment-fast.js'
 import { DOCUMENT_TYPES, type Document } from '../types.js'
 
 const app = new Hono()
@@ -433,9 +433,8 @@ app.post(
       data: { documents }
     })
 
-    // Trigger assessment agent to reprocess
-    runAssessmentAgent({
-      trigger: 'document_uploaded',
+    // Trigger fast assessment to reprocess
+    runAssessmentFast({
       engagementId,
       documentId: docId,
       storageItemId: doc.storageItemId,
