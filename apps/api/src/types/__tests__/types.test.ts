@@ -207,7 +207,7 @@ describe('DocumentSchema', () => {
   })
 
   it('validates all processing statuses', () => {
-    const statuses = ['pending', 'in_progress', 'classified']
+    const statuses = ['pending', 'downloading', 'extracting', 'classifying', 'classified', 'error']
 
     for (const status of statuses) {
       const doc = {

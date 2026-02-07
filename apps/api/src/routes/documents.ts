@@ -6,6 +6,7 @@ import { sendEmail } from '../lib/email.js'
 import { parseIssue, getSuggestedAction } from '../lib/issues.js'
 import { generateFollowUpEmail, generateFriendlyIssues } from '../lib/openai.js'
 import { runReconciliationAgent } from '../lib/agents/reconciliation.js'
+import { runAssessmentAgent } from '../lib/agents/assessment.js'
 import { DOCUMENT_TYPES, type Document } from '../types.js'
 
 const app = new Hono()
@@ -302,6 +303,146 @@ app.get(
     )
 
     return c.json({ issues: friendlyIssues })
+  }
+)
+
+// POST /api/engagements/:engagementId/documents/:docId/archive
+// Archive a document (for replacement flow)
+const ArchiveSchema = z.object({
+  reason: z.string().optional().default('Replaced by newer document')
+})
+
+app.post(
+  '/:engagementId/documents/:docId/archive',
+  zValidator('json', ArchiveSchema),
+  async (c) => {
+    const { engagementId, docId } = c.req.param()
+    const { reason } = c.req.valid('json')
+
+    const engagement = await prisma.engagement.findUnique({
+      where: { id: engagementId }
+    })
+    if (!engagement) {
+      return c.json({ error: 'Engagement not found' }, 404)
+    }
+
+    const documents = (engagement.documents as Document[]) || []
+    const docIndex = documents.findIndex(d => d.id === docId)
+    if (docIndex === -1) {
+      return c.json({ error: 'Document not found' }, 404)
+    }
+
+    documents[docIndex].archived = true
+    documents[docIndex].archivedAt = new Date().toISOString()
+    documents[docIndex].archivedReason = reason
+
+    await prisma.engagement.update({
+      where: { id: engagementId },
+      data: { documents }
+    })
+
+    // Trigger reconciliation to update completion without this document
+    runReconciliationAgent({
+      trigger: 'document_assessed',
+      engagementId,
+      documentId: docId,
+      documentType: documents[docIndex].documentType
+    }).catch(err => console.error('[ARCHIVE] Reconciliation failed:', err))
+
+    return c.json({ success: true, document: documents[docIndex] })
+  }
+)
+
+// POST /api/engagements/:engagementId/documents/:docId/unarchive
+// Restore an archived document
+app.post(
+  '/:engagementId/documents/:docId/unarchive',
+  async (c) => {
+    const { engagementId, docId } = c.req.param()
+
+    const engagement = await prisma.engagement.findUnique({
+      where: { id: engagementId }
+    })
+    if (!engagement) {
+      return c.json({ error: 'Engagement not found' }, 404)
+    }
+
+    const documents = (engagement.documents as Document[]) || []
+    const docIndex = documents.findIndex(d => d.id === docId)
+    if (docIndex === -1) {
+      return c.json({ error: 'Document not found' }, 404)
+    }
+
+    documents[docIndex].archived = false
+    documents[docIndex].archivedAt = null
+    documents[docIndex].archivedReason = null
+
+    await prisma.engagement.update({
+      where: { id: engagementId },
+      data: { documents }
+    })
+
+    // Trigger reconciliation to include this document again
+    runReconciliationAgent({
+      trigger: 'document_assessed',
+      engagementId,
+      documentId: docId,
+      documentType: documents[docIndex].documentType
+    }).catch(err => console.error('[UNARCHIVE] Reconciliation failed:', err))
+
+    return c.json({ success: true, document: documents[docIndex] })
+  }
+)
+
+// POST /api/engagements/:engagementId/documents/:docId/retry
+// Retry processing a document that failed
+app.post(
+  '/:engagementId/documents/:docId/retry',
+  async (c) => {
+    const { engagementId, docId } = c.req.param()
+
+    const engagement = await prisma.engagement.findUnique({
+      where: { id: engagementId }
+    })
+    if (!engagement) {
+      return c.json({ error: 'Engagement not found' }, 404)
+    }
+
+    const documents = (engagement.documents as Document[]) || []
+    const docIndex = documents.findIndex(d => d.id === docId)
+    if (docIndex === -1) {
+      return c.json({ error: 'Document not found' }, 404)
+    }
+
+    const doc = documents[docIndex]
+
+    // Reset document to pending state for reprocessing
+    documents[docIndex] = {
+      ...doc,
+      processingStatus: 'pending',
+      processingStartedAt: null,
+      documentType: 'PENDING',
+      confidence: 0,
+      issues: [],
+      issueDetails: null,
+      classifiedAt: null
+    }
+
+    await prisma.engagement.update({
+      where: { id: engagementId },
+      data: { documents }
+    })
+
+    // Trigger assessment agent to reprocess
+    runAssessmentAgent({
+      trigger: 'document_uploaded',
+      engagementId,
+      documentId: docId,
+      storageItemId: doc.storageItemId,
+      fileName: doc.fileName
+    }).catch(err => console.error('[RETRY] Assessment failed:', err))
+
+    return c.json({ success: true, document: documents[docIndex] })
   }
 )
 

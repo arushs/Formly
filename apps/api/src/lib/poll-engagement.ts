@@ -64,6 +64,9 @@ export async function pollEngagement(engagement: {
         approved: null,
         approvedAt: null,
         override: null,
+        archived: false,
+        archivedAt: null,
+        archivedReason: null,
       }
 
       existingDocs.push(newDoc)

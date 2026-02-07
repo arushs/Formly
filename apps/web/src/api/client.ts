@@ -53,12 +53,16 @@ interface Document {
   issues: string[]
   issueDetails: FriendlyIssue[] | null // Cached LLM-generated issue details
   classifiedAt: string | null
-  processingStatus?: 'pending' | 'in_progress' | 'classified'
+  processingStatus?: 'pending' | 'downloading' | 'extracting' | 'classifying' | 'classified' | 'error'
   processingStartedAt?: string | null
   // Document review fields
   approved: boolean | null
   approvedAt: string | null
   override: DocumentOverride | null
+  // Archive fields for document replacement flow
+  archived?: boolean
+  archivedAt?: string | null
+  archivedReason?: string | null
 }
 
 interface Reconciliation {
@@ -119,6 +123,12 @@ export async function createEngagement(data: CreateEngagementData): Promise<Enga
   return fetchApi('/api/engagements', {
     method: 'POST',
     body: JSON.stringify(data),
+  })
+}
+
+export async function deleteEngagement(id: string): Promise<{ message: string }> {
+  return fetchApi(`/api/engagements/${id}`, {
+    method: 'DELETE',
   })
 }
 
@@ -183,6 +193,35 @@ export async function getFriendlyIssues(
 
 export async function processEngagement(id: string): Promise<{ success: boolean; totalDocuments: number; pendingDocuments: number }> {
   return fetchApi(`/api/engagements/${id}/process`, {
+    method: 'POST',
+  })
+}
+
+export async function retryDocument(
+  engagementId: string,
+  docId: string
+): Promise<{ success: boolean; document: Document }> {
+  return fetchApi(`/api/engagements/${engagementId}/documents/${docId}/retry`, {
+    method: 'POST',
+  })
+}
+
+export async function archiveDocument(
+  engagementId: string,
+  docId: string,
+  reason?: string
+): Promise<{ success: boolean; document: Document }> {
+  return fetchApi(`/api/engagements/${engagementId}/documents/${docId}/archive`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: reason || 'Replaced by newer document' }),
+  })
+}
+
+export async function unarchiveDocument(
+  engagementId: string,
+  docId: string
+): Promise<{ success: boolean; document: Document }> {
+  return fetchApi(`/api/engagements/${engagementId}/documents/${docId}/unarchive`, {
     method: 'POST',
   })
 }

@@ -72,6 +72,9 @@ describe('OpenAI functions', () => {
   })
 
   describe('classifyDocument', () => {
+    // Content must be >= 100 chars to pass through to OpenAI (empty form check)
+    const validContent = 'W-2 Wage and Tax Statement 2025. Employer: Test Corp, EIN: 12-3456789. Employee wages Box 1: $50,000.00. Federal tax withheld Box 2: $8,000.00'
+
     it('classifies document with all fields', async () => {
       const mockClassification = {
         documentType: 'W-2',
@@ -84,7 +87,7 @@ describe('OpenAI functions', () => {
         choices: [{ message: { parsed: mockClassification } }],
       })
 
-      const result = await classifyDocument('W-2 content here', 'w2.pdf', 2025)
+      const result = await classifyDocument(validContent, 'w2.pdf', 2025)
 
       expect(result).toEqual(mockClassification)
       expect(mockParse).toHaveBeenCalledWith(
@@ -112,7 +115,8 @@ describe('OpenAI functions', () => {
         choices: [{ message: { parsed: mockClassification } }],
       })
 
-      const result = await classifyDocument('W-2 2024', 'old-w2.pdf', 2025)
+      const oldContent = 'W-2 Wage and Tax Statement 2024. Employer: Old Corp, EIN: 98-7654321. Employee wages Box 1: $45,000.00. Federal tax withheld Box 2: $7,000.00'
+      const result = await classifyDocument(oldContent, 'old-w2.pdf', 2025)
 
       expect(result.issues).toHaveLength(1)
       expect(result.taxYear).toBe(2024)
@@ -123,7 +127,18 @@ describe('OpenAI functions', () => {
         choices: [{ message: { parsed: null } }],
       })
 
-      await expect(classifyDocument('content', 'file.pdf')).rejects.toThrow('Failed to classify document')
+      await expect(classifyDocument(validContent, 'file.pdf')).rejects.toThrow('Failed to classify document')
+    })
+
+    it('returns low confidence for minimal content', async () => {
+      // Content < 100 chars should bypass OpenAI and return low confidence
+      const result = await classifyDocument('short', 'blank-form.pdf', 2025)
+
+      expect(result.documentType).toBe('OTHER')
+      expect(result.confidence).toBe(0.3)
+      expect(result.issues).toHaveLength(1)
+      expect(result.issues[0]).toContain('blank or has minimal content')
+      expect(mockParse).not.toHaveBeenCalled()
     })
   })
 

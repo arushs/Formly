@@ -304,4 +304,29 @@ app.post('/:id/reconcile', async (c) => {
   }
 })
 
+// DELETE /api/engagements/:id - Delete an engagement
+app.delete('/:id', async (c) => {
+  const id = c.req.param('id')
+
+  const engagement = await prisma.engagement.findUnique({
+    where: { id }
+  })
+
+  if (!engagement) {
+    return c.json({ error: 'Engagement not found' }, 404)
+  }
+
+  // Delete related records first (documents, etc.)
+  await prisma.document.deleteMany({
+    where: { engagementId: id }
+  })
+
+  // Delete the engagement
+  await prisma.engagement.delete({
+    where: { id }
+  })
+
+  return c.json({ message: 'Engagement deleted successfully' })
+})
+
 export default app

@@ -26,6 +26,19 @@ export const assessmentServer = createSdkMcpServer({
           where: { id: args.engagementId }
         })
 
+        // Update status to 'downloading' at the start
+        if (engagement) {
+          const docs = (engagement.documents as Document[] | null) ?? []
+          const docIdx = docs.findIndex(d => d.id === args.documentId)
+          if (docIdx !== -1) {
+            docs[docIdx].processingStatus = 'downloading'
+            await prisma.engagement.update({
+              where: { id: args.engagementId },
+              data: { documents: docs }
+            })
+          }
+        }
+
         if (!engagement) {
           return {
             content: [{ type: 'text', text: 'Error: Engagement not found' }],
@@ -62,6 +75,22 @@ export const assessmentServer = createSdkMcpServer({
           )
 
           console.log(`[ASSESSMENT] Downloaded ${fileName} (${size} bytes, ${mimeType})`)
+
+          // Update status to 'extracting' before OCR
+          const currentEngagement = await prisma.engagement.findUnique({
+            where: { id: args.engagementId }
+          })
+          if (currentEngagement) {
+            const docs = (currentEngagement.documents as Document[] | null) ?? []
+            const docIdx = docs.findIndex(d => d.id === args.documentId)
+            if (docIdx !== -1) {
+              docs[docIdx].processingStatus = 'extracting'
+              await prisma.engagement.update({
+                where: { id: args.engagementId },
+                data: { documents: docs }
+              })
+            }
+          }
 
           // Check if file type is supported
           if (!isSupportedFileType(mimeType)) {
@@ -123,6 +152,7 @@ export const assessmentServer = createSdkMcpServer({
       'Classify and validate the document - identifies type, checks for issues like wrong year, missing fields, quality problems',
       {
         engagementId: z.string().describe('The engagement ID (to get expected tax year)'),
+        documentId: z.string().describe('The document ID'),
         content: z.string().describe('The extracted text content'),
         fileName: z.string().describe('The file name')
       },
@@ -132,6 +162,20 @@ export const assessmentServer = createSdkMcpServer({
           const engagement = await prisma.engagement.findUnique({
             where: { id: args.engagementId }
           })
+          
+          // Update status to 'classifying' before classification
+          if (engagement) {
+            const docs = (engagement.documents as Document[] | null) ?? []
+            const docIdx = docs.findIndex(d => d.id === args.documentId)
+            if (docIdx !== -1) {
+              docs[docIdx].processingStatus = 'classifying'
+              await prisma.engagement.update({
+                where: { id: args.engagementId },
+                data: { documents: docs }
+              })
+            }
+          }
+          
           const expectedTaxYear = engagement?.taxYear
 
           const classification = await classifyWithOpenAI(args.content, args.fileName, expectedTaxYear)
@@ -422,11 +466,11 @@ export async function runAssessmentAgent(context: {
     throw new Error(`Engagement ${context.engagementId} not found`)
   }
 
-  // Mark document as in_progress with timestamp
+  // Mark document as pending with timestamp (will change to 'downloading' when tool runs)
   const documents = (engagement.documents as Document[] | null) ?? []
   const docIndex = documents.findIndex(d => d.id === context.documentId)
   if (docIndex !== -1) {
-    documents[docIndex].processingStatus = 'in_progress'
+    documents[docIndex].processingStatus = 'pending'
     documents[docIndex].processingStartedAt = new Date().toISOString()
     await prisma.engagement.update({
       where: { id: context.engagementId },
@@ -443,8 +487,8 @@ File Name: ${context.fileName}
 Expected Tax Year: ${engagement.taxYear}
 
 Your workflow:
-1. Extract the document content using OCR (extract_document)
-2. Classify the document (classify_document) - this also validates and detects issues
+1. Extract the document content using OCR (extract_document) - pass engagementId, documentId, storageItemId, fileName
+2. Classify the document (classify_document) - pass engagementId, documentId, content, fileName. This also validates and detects issues
 3. Update the document record with the classification results (update_document)
 
 The classify_document tool handles all validation including:
@@ -520,6 +564,29 @@ Be efficient - extract, classify, update. Don't use flag_issue separately unless
     return { hasIssues, documentType }
   } catch (error) {
     console.error(`[ASSESSMENT] Error processing document ${context.documentId}:`, error)
+
+    // Mark document as error state so it doesn't get stuck
+    try {
+      const currentEngagement = await prisma.engagement.findUnique({
+        where: { id: context.engagementId }
+      })
+      if (currentEngagement) {
+        const documents = (currentEngagement.documents as Document[] | null) ?? []
+        const docIndex = documents.findIndex(d => d.id === context.documentId)
+        if (docIndex !== -1) {
+          documents[docIndex].processingStatus = 'error'
+          documents[docIndex].processingStartedAt = null
+          await prisma.engagement.update({
+            where: { id: context.engagementId },
+            data: { documents }
+          })
+          console.log(`[ASSESSMENT] Marked document ${context.documentId} as error`)
+        }
+      }
+    } catch (updateError) {
+      console.error(`[ASSESSMENT] Failed to update document status to error:`, updateError)
+    }
+
     throw error
   }
 }

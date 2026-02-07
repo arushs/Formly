@@ -28,8 +28,28 @@ export const reconciliationServer = createSdkMcpServer({
         }
 
         const checklist = (engagement.checklist as ChecklistItem[] | null) ?? []
-        const documents = (engagement.documents as Document[] | null) ?? []
+        const allDocuments = (engagement.documents as Document[] | null) ?? []
         const reconciliation = engagement.reconciliation as Reconciliation | null
+
+        // Filter out archived documents for reconciliation
+        const documents = allDocuments.filter(doc => !doc.archived)
+
+        // Group documents by type and prefer the newest (by classifiedAt)
+        const docsByType = new Map<string, Document[]>()
+        for (const doc of documents) {
+          const existing = docsByType.get(doc.documentType) || []
+          existing.push(doc)
+          docsByType.set(doc.documentType, existing)
+        }
+
+        // For each type, sort by classifiedAt descending (newest first)
+        for (const [type, docs] of docsByType) {
+          docs.sort((a, b) => {
+            const aTime = a.classifiedAt ? new Date(a.classifiedAt).getTime() : 0
+            const bTime = b.classifiedAt ? new Date(b.classifiedAt).getTime() : 0
+            return bTime - aTime // Newest first
+          })
+        }
 
         return {
           content: [{
@@ -54,7 +74,9 @@ export const reconciliationServer = createSdkMcpServer({
                 taxYear: doc.taxYear,
                 issues: doc.issues,
                 approved: doc.approved,
-                override: doc.override
+                override: doc.override,
+                classifiedAt: doc.classifiedAt,
+                archived: doc.archived
               })),
               currentReconciliation: reconciliation ? {
                 completionPercentage: reconciliation.completionPercentage,

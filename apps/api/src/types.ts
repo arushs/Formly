@@ -33,7 +33,7 @@ export const DocumentSchema = z.object({
   issueDetails: z.array(FriendlyIssueSchema).nullable().default(null), // Cached LLM-generated issue details
   classifiedAt: z.string().nullable(),
   // Processing state tracking for retry logic
-  processingStatus: z.enum(['pending', 'in_progress', 'classified']).optional(), // defaults to 'pending' if missing
+  processingStatus: z.enum(['pending', 'downloading', 'extracting', 'classifying', 'classified', 'error']).optional(), // defaults to 'pending' if missing
   processingStartedAt: z.string().nullable().optional(), // ISO timestamp when processing started
   // Document review fields
   approved: z.boolean().nullable().default(null), // null = not reviewed, true = approved
@@ -42,6 +42,10 @@ export const DocumentSchema = z.object({
     originalType: z.string(),
     reason: z.string(),
   }).nullable().default(null),
+  // Archive fields for document replacement flow
+  archived: z.boolean().default(false),
+  archivedAt: z.string().nullable().default(null),
+  archivedReason: z.string().nullable().default(null), // e.g., "Replaced by newer document"
 })
 
 export const ReconciliationSchema = z.object({

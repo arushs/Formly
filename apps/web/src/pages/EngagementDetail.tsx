@@ -10,6 +10,9 @@ import {
   getEmailPreview,
   getFriendlyIssues,
   processEngagement,
+  retryDocument,
+  archiveDocument,
+  unarchiveDocument,
   DOCUMENT_TYPES,
   type Engagement,
   type ChecklistItem,
@@ -41,6 +44,7 @@ export default function EngagementDetail() {
   const [generatingBrief, setGeneratingBrief] = useState(false)
   const [actionInProgress, setActionInProgress] = useState<string | null>(null)
   const [checkingForDocs, setCheckingForDocs] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
 
   const selectedDocId = searchParams.get('doc')
 
@@ -143,6 +147,57 @@ export default function EngagementDetail() {
     }
   }
 
+  async function handleRetryDocument(docId: string) {
+    if (!id || !engagement) return
+
+    setActionInProgress('retry')
+    try {
+      const result = await retryDocument(id, docId)
+      const documents = (engagement.documents || []).map(d =>
+        d.id === docId ? result.document : d
+      )
+      setEngagement({ ...engagement, documents })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to retry document')
+    } finally {
+      setActionInProgress(null)
+    }
+  }
+
+  async function handleArchiveDocument(docId: string, reason?: string) {
+    if (!id || !engagement) return
+
+    setActionInProgress('archive')
+    try {
+      const result = await archiveDocument(id, docId, reason)
+      const documents = (engagement.documents || []).map(d =>
+        d.id === docId ? result.document : d
+      )
+      setEngagement({ ...engagement, documents })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to archive document')
+    } finally {
+      setActionInProgress(null)
+    }
+  }
+
+  async function handleUnarchiveDocument(docId: string) {
+    if (!id || !engagement) return
+
+    setActionInProgress('unarchive')
+    try {
+      const result = await unarchiveDocument(id, docId)
+      const documents = (engagement.documents || []).map(d =>
+        d.id === docId ? result.document : d
+      )
+      setEngagement({ ...engagement, documents })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to restore document')
+    } finally {
+      setActionInProgress(null)
+    }
+  }
+
   function selectDocument(docId: string | null) {
     if (docId) {
       setSearchParams({ doc: docId })
@@ -168,12 +223,35 @@ export default function EngagementDetail() {
   }
 
   const checklist = (engagement.checklist as ChecklistItem[]) || []
-  const documents = (engagement.documents as Document[]) || []
+  const allDocuments = (engagement.documents as Document[]) || []
+  const documents = showArchived ? allDocuments : allDocuments.filter(d => !d.archived)
+  const archivedCount = allDocuments.filter(d => d.archived).length
   const reconciliation = engagement.reconciliation as Reconciliation | null
 
   function isDocProcessing(doc: Document): boolean {
-    return doc.processingStatus === 'in_progress' ||
+    // Error is a terminal state, not processing
+    if (doc.processingStatus === 'error') return false
+    const processingStates = ['pending', 'downloading', 'extracting', 'classifying']
+    return processingStates.includes(doc.processingStatus || '') ||
       (doc.documentType === 'PENDING' && doc.processingStatus !== 'classified')
+  }
+
+  function getProcessingStageText(doc: Document): string {
+    switch (doc.processingStatus) {
+      case 'downloading':
+        return 'Downloading...'
+      case 'extracting':
+        return 'Extracting text...'
+      case 'classifying':
+        return 'Classifying...'
+      case 'pending':
+      default:
+        return 'Processing...'
+    }
+  }
+
+  function isDocError(doc: Document): boolean {
+    return doc.processingStatus === 'error'
   }
 
   // Build a map of checklist item statuses from reconciliation
@@ -247,7 +325,20 @@ export default function EngagementDetail() {
           {/* Document List */}
           <div className="bg-white rounded-lg border">
             <div className="p-4 border-b flex items-center justify-between">
-              <h2 className="font-semibold">Documents ({documents.length})</h2>
+              <div className="flex items-center gap-3">
+                <h2 className="font-semibold">Documents ({documents.length})</h2>
+                {archivedCount > 0 && (
+                  <label className="flex items-center gap-1 text-sm text-gray-500 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showArchived}
+                      onChange={(e) => setShowArchived(e.target.checked)}
+                      className="rounded"
+                    />
+                    Show archived ({archivedCount})
+                  </label>
+                )}
+              </div>
               {['INTAKE_DONE', 'COLLECTING'].includes(engagement.status) && (
                 <button
                   onClick={handleCheckForDocs}
@@ -261,19 +352,34 @@ export default function EngagementDetail() {
             {documents.some(d => isDocProcessing(d)) && (
               <div className="px-4 py-2 bg-blue-50 border-b flex items-center gap-2 text-sm text-blue-800">
                 <div className="animate-spin w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
-                Processing documents...
+                {(() => {
+                  const processingDoc = documents.find(d => isDocProcessing(d))
+                  return processingDoc ? getProcessingStageText(processingDoc) : 'Processing documents...'
+                })()}
+              </div>
+            )}
+            {documents.some(d => isDocError(d)) && (
+              <div className="px-4 py-2 bg-red-50 border-b flex items-center gap-2 text-sm text-red-800">
+                <span>⚠️</span>
+                Some documents failed to process. Select them to retry.
               </div>
             )}
             <div className="divide-y max-h-[600px] overflow-y-auto">
               {documents.map(doc => {
                 const processing = isDocProcessing(doc)
+                const errorState = isDocError(doc)
                 const docHasErrors = hasErrors(doc.issues)
                 const docHasWarnings = hasWarnings(doc.issues)
                 const isResolved = doc.issues.length === 0 || doc.approved === true
                 const isSelected = doc.id === selectedDocId
+                const isArchived = doc.archived === true
 
-                const bgColor = isSelected
+                const bgColor = isArchived
+                  ? 'bg-gray-100 opacity-60'
+                  : isSelected
                   ? 'bg-blue-50 border-l-4 border-l-blue-500'
+                  : errorState
+                  ? 'bg-red-50 border-l-4 border-l-red-500'
                   : processing
                   ? 'bg-gray-50'
                   : docHasErrors && !isResolved
@@ -288,37 +394,41 @@ export default function EngagementDetail() {
                     onClick={() => selectDocument(doc.id)}
                     className={`block w-full text-left p-4 transition-colors ${bgColor}`}
                   >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="font-medium flex items-center gap-2">
-                          {processing ? (
-                            <div className="animate-spin w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
-                          ) : isResolved ? (
-                            <span className="text-green-600">✓</span>
-                          ) : docHasErrors ? (
-                            <span className="text-red-600">✗</span>
-                          ) : docHasWarnings ? (
-                            <span className="text-yellow-600">⚠</span>
-                          ) : null}
-                          {doc.fileName}
-                        </div>
-                        <div className="text-sm text-gray-600">
-                          {processing ? 'Processing...' : doc.documentType}
-                          {!processing && doc.taxYear && ` · ${doc.taxYear}`}
-                          {doc.override && (
-                            <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-1 rounded">
-                              overridden
-                            </span>
-                          )}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        {/* Single status icon */}
+                        {isArchived ? (
+                          <span className="text-gray-400 flex-shrink-0">📦</span>
+                        ) : processing ? (
+                          <div className="animate-spin w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full flex-shrink-0"></div>
+                        ) : errorState ? (
+                          <span className="text-red-600 flex-shrink-0">⚠</span>
+                        ) : isResolved ? (
+                          <span className="text-green-600 flex-shrink-0">✓</span>
+                        ) : docHasErrors ? (
+                          <span className="text-red-600 flex-shrink-0">✗</span>
+                        ) : docHasWarnings ? (
+                          <span className="text-yellow-600 flex-shrink-0">⚠</span>
+                        ) : (
+                          <span className="text-gray-400 flex-shrink-0">○</span>
+                        )}
+                        <div className="min-w-0">
+                          <div className={`font-medium truncate ${isArchived ? 'line-through text-gray-400' : ''}`}>{doc.fileName}</div>
+                          <div className={`text-sm ${isArchived ? 'text-gray-400' : 'text-gray-500'}`}>
+                            {isArchived ? 'Archived' : processing ? getProcessingStageText(doc) : errorState ? 'Failed' : doc.documentType}
+                          </div>
                         </div>
                       </div>
-                      {doc.issues.length > 0 && !isResolved && !processing && (
-                        <span className={`text-xs px-2 py-1 rounded-full ${
-                          docHasErrors ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
-                        }`}>
+                      {/* Badge - archived or issue count */}
+                      {isArchived ? (
+                        <span className="text-xs px-2 py-1 rounded-full bg-gray-200 text-gray-600 flex-shrink-0">
+                          Archived
+                        </span>
+                      ) : !processing && !errorState && doc.issues.length > 0 && !isResolved ? (
+                        <span className="text-sm text-gray-500 flex-shrink-0">
                           {doc.issues.length} issue{doc.issues.length > 1 ? 's' : ''}
                         </span>
-                      )}
+                      ) : null}
                     </div>
                   </button>
                 )
@@ -341,6 +451,9 @@ export default function EngagementDetail() {
                 onApprove={handleApproveDocument}
                 onReclassify={handleReclassifyDocument}
                 onSendEmail={handleSendFollowUp}
+                onRetry={handleRetryDocument}
+                onArchive={handleArchiveDocument}
+                onUnarchive={handleUnarchiveDocument}
                 actionInProgress={actionInProgress}
               />
             ) : (
@@ -429,6 +542,9 @@ interface DocumentDetailProps {
   onApprove: (docId: string) => Promise<void>
   onReclassify: (docId: string, newType: string) => Promise<void>
   onSendEmail: (docId: string, options: { email: string; subject: string; body: string }) => Promise<void>
+  onRetry: (docId: string) => Promise<void>
+  onArchive: (docId: string, reason?: string) => Promise<void>
+  onUnarchive: (docId: string) => Promise<void>
   actionInProgress: string | null
 }
 
@@ -439,6 +555,9 @@ function DocumentDetail({
   onApprove,
   onReclassify,
   onSendEmail,
+  onRetry,
+  onArchive,
+  onUnarchive,
   actionInProgress
 }: DocumentDetailProps) {
   const [selectedType, setSelectedType] = useState('')
@@ -489,6 +608,53 @@ function DocumentDetail({
       </div>
 
       <div className="p-4 space-y-4">
+        {/* Archived State */}
+        {doc.archived && (
+          <div className="p-4 bg-gray-100 border border-gray-300 rounded-lg">
+            <div className="flex items-center gap-2 text-gray-700 font-medium">
+              <span>📦</span>
+              Document Archived
+            </div>
+            {doc.archivedReason && (
+              <p className="mt-1 text-sm text-gray-600">
+                {doc.archivedReason}
+              </p>
+            )}
+            {doc.archivedAt && (
+              <p className="mt-1 text-xs text-gray-500">
+                Archived on {new Date(doc.archivedAt).toLocaleDateString()}
+              </p>
+            )}
+            <button
+              onClick={() => onUnarchive(doc.id)}
+              disabled={actionInProgress !== null}
+              className="mt-3 w-full py-2 px-4 bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {actionInProgress === 'unarchive' ? 'Restoring...' : '↩️ Restore Document'}
+            </button>
+          </div>
+        )}
+
+        {/* Error State */}
+        {!doc.archived && doc.processingStatus === 'error' && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-center gap-2 text-red-800 font-medium">
+              <span>⚠️</span>
+              Processing Failed
+            </div>
+            <p className="mt-1 text-sm text-red-700">
+              An error occurred while processing this document.
+            </p>
+            <button
+              onClick={() => onRetry(doc.id)}
+              disabled={actionInProgress !== null}
+              className="mt-3 w-full py-2 px-4 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {actionInProgress === 'retry' ? 'Retrying...' : '🔄 Retry Processing'}
+            </button>
+          </div>
+        )}
+
         {/* File Info */}
         <div>
           <h3 className="text-sm font-medium text-gray-500 uppercase">Uploaded File</h3>
@@ -617,6 +783,22 @@ function DocumentDetail({
           <div className="pt-4 border-t">
             <h3 className="text-sm font-medium text-gray-500 uppercase">Override Note</h3>
             <p className="mt-1 text-sm">{doc.override.reason}</p>
+          </div>
+        )}
+
+        {/* Archive button - for non-archived documents */}
+        {!doc.archived && (
+          <div className="pt-4 border-t">
+            <button
+              onClick={() => onArchive(doc.id, 'Replaced by newer document')}
+              disabled={actionInProgress !== null}
+              className="w-full py-2 px-4 border border-gray-300 text-gray-600 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {actionInProgress === 'archive' ? 'Archiving...' : '📦 Archive Document'}
+            </button>
+            <p className="mt-1 text-xs text-gray-500 text-center">
+              Archive this document if it's been replaced by a newer version
+            </p>
           </div>
         )}
       </div>
