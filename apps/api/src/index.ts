@@ -8,6 +8,7 @@ import documents from './routes/documents.js'
 import webhooks from './routes/webhooks.js'
 import cron from './routes/cron.js'
 import oauth from './routes/oauth.js'
+import { requireApiAuth } from './middleware/auth.js'
 import { initScheduler } from './scheduler.js'
 
 const app = new Hono()
@@ -20,8 +21,11 @@ app.use('*', cors({
   allowHeaders: ['Content-Type', 'Authorization'],
 }))
 
-// Health check
+// Health check (public - no auth required)
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }))
+
+// Protected routes - require API authentication
+app.use('/api/engagements/*', requireApiAuth)
 
 // Mount routes
 app.route('/api/engagements', engagements)
