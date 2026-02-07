@@ -10,6 +10,7 @@ import {
   getEmailPreview,
   getFriendlyIssues,
   processEngagement,
+  retryDocument,
   DOCUMENT_TYPES,
   type Engagement,
   type ChecklistItem,
@@ -143,6 +144,23 @@ export default function EngagementDetail() {
     }
   }
 
+  async function handleRetryDocument(docId: string) {
+    if (!id || !engagement) return
+
+    setActionInProgress('retry')
+    try {
+      const result = await retryDocument(id, docId)
+      const documents = (engagement.documents || []).map(d =>
+        d.id === docId ? result.document : d
+      )
+      setEngagement({ ...engagement, documents })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to retry document')
+    } finally {
+      setActionInProgress(null)
+    }
+  }
+
   function selectDocument(docId: string | null) {
     if (docId) {
       setSearchParams({ doc: docId })
@@ -172,8 +190,14 @@ export default function EngagementDetail() {
   const reconciliation = engagement.reconciliation as Reconciliation | null
 
   function isDocProcessing(doc: Document): boolean {
+    // Error is a terminal state, not processing
+    if (doc.processingStatus === 'error') return false
     return doc.processingStatus === 'in_progress' ||
       (doc.documentType === 'PENDING' && doc.processingStatus !== 'classified')
+  }
+
+  function isDocError(doc: Document): boolean {
+    return doc.processingStatus === 'error'
   }
 
   // Build a map of checklist item statuses from reconciliation
@@ -264,9 +288,16 @@ export default function EngagementDetail() {
                 Processing documents...
               </div>
             )}
+            {documents.some(d => isDocError(d)) && (
+              <div className="px-4 py-2 bg-red-50 border-b flex items-center gap-2 text-sm text-red-800">
+                <span>⚠️</span>
+                Some documents failed to process. Select them to retry.
+              </div>
+            )}
             <div className="divide-y max-h-[600px] overflow-y-auto">
               {documents.map(doc => {
                 const processing = isDocProcessing(doc)
+                const errorState = isDocError(doc)
                 const docHasErrors = hasErrors(doc.issues)
                 const docHasWarnings = hasWarnings(doc.issues)
                 const isResolved = doc.issues.length === 0 || doc.approved === true
@@ -274,6 +305,8 @@ export default function EngagementDetail() {
 
                 const bgColor = isSelected
                   ? 'bg-blue-50 border-l-4 border-l-blue-500'
+                  : errorState
+                  ? 'bg-red-50 border-l-4 border-l-red-500'
                   : processing
                   ? 'bg-gray-50'
                   : docHasErrors && !isResolved
@@ -293,6 +326,8 @@ export default function EngagementDetail() {
                         <div className="font-medium flex items-center gap-2">
                           {processing ? (
                             <div className="animate-spin w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
+                          ) : errorState ? (
+                            <span className="text-red-600">⚠</span>
                           ) : isResolved ? (
                             <span className="text-green-600">✓</span>
                           ) : docHasErrors ? (
@@ -303,8 +338,8 @@ export default function EngagementDetail() {
                           {doc.fileName}
                         </div>
                         <div className="text-sm text-gray-600">
-                          {processing ? 'Processing...' : doc.documentType}
-                          {!processing && doc.taxYear && ` · ${doc.taxYear}`}
+                          {processing ? 'Processing...' : errorState ? 'Processing failed' : doc.documentType}
+                          {!processing && !errorState && doc.taxYear && ` · ${doc.taxYear}`}
                           {doc.override && (
                             <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-1 rounded">
                               overridden
@@ -312,7 +347,12 @@ export default function EngagementDetail() {
                           )}
                         </div>
                       </div>
-                      {doc.issues.length > 0 && !isResolved && !processing && (
+                      {errorState && (
+                        <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-800">
+                          Failed
+                        </span>
+                      )}
+                      {!errorState && doc.issues.length > 0 && !isResolved && !processing && (
                         <span className={`text-xs px-2 py-1 rounded-full ${
                           docHasErrors ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
                         }`}>
@@ -341,6 +381,7 @@ export default function EngagementDetail() {
                 onApprove={handleApproveDocument}
                 onReclassify={handleReclassifyDocument}
                 onSendEmail={handleSendFollowUp}
+                onRetry={handleRetryDocument}
                 actionInProgress={actionInProgress}
               />
             ) : (
@@ -429,6 +470,7 @@ interface DocumentDetailProps {
   onApprove: (docId: string) => Promise<void>
   onReclassify: (docId: string, newType: string) => Promise<void>
   onSendEmail: (docId: string, options: { email: string; subject: string; body: string }) => Promise<void>
+  onRetry: (docId: string) => Promise<void>
   actionInProgress: string | null
 }
 
@@ -439,6 +481,7 @@ function DocumentDetail({
   onApprove,
   onReclassify,
   onSendEmail,
+  onRetry,
   actionInProgress
 }: DocumentDetailProps) {
   const [selectedType, setSelectedType] = useState('')
@@ -489,6 +532,26 @@ function DocumentDetail({
       </div>
 
       <div className="p-4 space-y-4">
+        {/* Error State */}
+        {doc.processingStatus === 'error' && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-center gap-2 text-red-800 font-medium">
+              <span>⚠️</span>
+              Processing Failed
+            </div>
+            <p className="mt-1 text-sm text-red-700">
+              An error occurred while processing this document.
+            </p>
+            <button
+              onClick={() => onRetry(doc.id)}
+              disabled={actionInProgress !== null}
+              className="mt-3 w-full py-2 px-4 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {actionInProgress === 'retry' ? 'Retrying...' : '🔄 Retry Processing'}
+            </button>
+          </div>
+        )}
+
         {/* File Info */}
         <div>
           <h3 className="text-sm font-medium text-gray-500 uppercase">Uploaded File</h3>

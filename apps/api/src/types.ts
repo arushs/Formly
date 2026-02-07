@@ -33,7 +33,7 @@ export const DocumentSchema = z.object({
   issueDetails: z.array(FriendlyIssueSchema).nullable().default(null), // Cached LLM-generated issue details
   classifiedAt: z.string().nullable(),
   // Processing state tracking for retry logic
-  processingStatus: z.enum(['pending', 'in_progress', 'classified']).optional(), // defaults to 'pending' if missing
+  processingStatus: z.enum(['pending', 'in_progress', 'classified', 'error']).optional(), // defaults to 'pending' if missing
   processingStartedAt: z.string().nullable().optional(), // ISO timestamp when processing started
   // Document review fields
   approved: z.boolean().nullable().default(null), // null = not reviewed, true = approved

@@ -520,6 +520,29 @@ Be efficient - extract, classify, update. Don't use flag_issue separately unless
     return { hasIssues, documentType }
   } catch (error) {
     console.error(`[ASSESSMENT] Error processing document ${context.documentId}:`, error)
+
+    // Mark document as error state so it doesn't get stuck
+    try {
+      const currentEngagement = await prisma.engagement.findUnique({
+        where: { id: context.engagementId }
+      })
+      if (currentEngagement) {
+        const documents = (currentEngagement.documents as Document[] | null) ?? []
+        const docIndex = documents.findIndex(d => d.id === context.documentId)
+        if (docIndex !== -1) {
+          documents[docIndex].processingStatus = 'error'
+          documents[docIndex].processingStartedAt = null
+          await prisma.engagement.update({
+            where: { id: context.engagementId },
+            data: { documents }
+          })
+          console.log(`[ASSESSMENT] Marked document ${context.documentId} as error`)
+        }
+      }
+    } catch (updateError) {
+      console.error(`[ASSESSMENT] Failed to update document status to error:`, updateError)
+    }
+
     throw error
   }
 }

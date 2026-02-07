@@ -59,6 +59,19 @@ export async function classifyDocument(
   taxYear: number | null
   issues: string[]
 }> {
+  // Pre-check: Empty or minimal content should get low confidence
+  // This catches blank/template forms that AI might misclassify with high confidence
+  const trimmedContent = content.trim()
+  if (trimmedContent.length < 100) {
+    console.log(`[CLASSIFY] Minimal content detected (${trimmedContent.length} chars) for ${fileName}`)
+    return {
+      documentType: 'OTHER',
+      confidence: 0.3,
+      taxYear: null,
+      issues: ['[WARNING:incomplete::] Document appears to be blank or has minimal content. Please upload a completed form with filled-in data.']
+    }
+  }
+
   const ClassificationSchema = z.object({
     documentType: z.string(),
     confidence: z.number(),
@@ -84,8 +97,11 @@ ${expectedTaxYear ? `- Wrong tax year: If document year doesn't match ${expected
   * 1099-INT: payer name, interest income (Box 1)
   * 1099-MISC: payer name, relevant income boxes
   * K-1: partnership/S-corp name/EIN, partner's share amounts
+- Empty or template forms: If the document appears to be a blank template without filled-in data, set confidence < 0.5 and flag as incomplete
 - Quality issues: specify what's illegible or cut off
 - Incomplete: note which pages appear missing
+
+IMPORTANT: Do not give high confidence to blank or unfilled forms. A form template without actual data (wages, amounts, names) should have LOW confidence.
 
 Format: "[SEVERITY:type:expected:detected] Specific description"
 - SEVERITY: ERROR (blocks tax prep) or WARNING (needs review)
