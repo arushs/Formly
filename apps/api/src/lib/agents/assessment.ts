@@ -7,6 +7,29 @@ import { extractDocument, isSupportedFileType } from '../document-extraction.js'
 import { parseIssue } from '../issues.js'
 import type { Document, FriendlyIssue } from '../../types.js'
 
+// Helper function to update document processing status
+async function updateDocumentStatus(engagementId: string, documentId: string, status: 'pending' | 'downloading' | 'extracting' | 'classifying' | 'classified' | 'error') {
+  const engagement = await prisma.engagement.findUnique({
+    where: { id: engagementId }
+  })
+  if (!engagement) return
+
+  const documents = (engagement.documents as Document[] | null) ?? []
+  const docIndex = documents.findIndex(d => d.id === documentId)
+  if (docIndex !== -1) {
+    documents[docIndex].processingStatus = status
+    if (status === 'downloading') {
+      documents[docIndex].processingStartedAt = new Date().toISOString()
+    } else if (status === 'classified' || status === 'error') {
+      documents[docIndex].processingStartedAt = null
+    }
+    await prisma.engagement.update({
+      where: { id: engagementId },
+      data: { documents }
+    })
+  }
+}
+
 // Define the Assessment Agent's MCP server with tools
 export const assessmentServer = createSdkMcpServer({
   name: 'assessment',
@@ -54,6 +77,9 @@ export const assessmentServer = createSdkMcpServer({
         }
 
         try {
+          // Update status to downloading
+          await updateDocumentStatus(args.engagementId, args.documentId, 'downloading')
+          
           // Download file using the appropriate storage client
           const client = getStorageClient(provider)
           const { buffer, mimeType, fileName, size } = await client.downloadFile(
@@ -62,6 +88,9 @@ export const assessmentServer = createSdkMcpServer({
           )
 
           console.log(`[ASSESSMENT] Downloaded ${fileName} (${size} bytes, ${mimeType})`)
+
+          // Update status to extracting
+          await updateDocumentStatus(args.engagementId, args.documentId, 'extracting')
 
           // Check if file type is supported
           if (!isSupportedFileType(mimeType)) {
@@ -123,11 +152,15 @@ export const assessmentServer = createSdkMcpServer({
       'Classify and validate the document - identifies type, checks for issues like wrong year, missing fields, quality problems',
       {
         engagementId: z.string().describe('The engagement ID (to get expected tax year)'),
+        documentId: z.string().describe('The document ID'),
         content: z.string().describe('The extracted text content'),
         fileName: z.string().describe('The file name')
       },
       async (args) => {
         try {
+          // Update status to classifying
+          await updateDocumentStatus(args.engagementId, args.documentId, 'classifying')
+          
           // Get expected tax year from engagement
           const engagement = await prisma.engagement.findUnique({
             where: { id: args.engagementId }
@@ -422,17 +455,46 @@ export async function runAssessmentAgent(context: {
     throw new Error(`Engagement ${context.engagementId} not found`)
   }
 
-  // Mark document as in_progress with timestamp
+  // Helper function to update processing status
+  async function updateProcessingStatus(status: 'pending' | 'downloading' | 'extracting' | 'classifying' | 'classified' | 'error') {
+    const engagement = await prisma.engagement.findUnique({
+      where: { id: context.engagementId }
+    })
+    if (!engagement) return
+
+    const documents = (engagement.documents as Document[] | null) ?? []
+    const docIndex = documents.findIndex(d => d.id === context.documentId)
+    if (docIndex !== -1) {
+      documents[docIndex].processingStatus = status
+      if (status === 'downloading') {
+        documents[docIndex].processingStartedAt = new Date().toISOString()
+      } else if (status === 'classified' || status === 'error') {
+        documents[docIndex].processingStartedAt = null
+      }
+      await prisma.engagement.update({
+        where: { id: context.engagementId },
+        data: { documents }
+      })
+    }
+  }
+
+  // Check for timeout condition (processing started > 5 minutes ago)
   const documents = (engagement.documents as Document[] | null) ?? []
   const docIndex = documents.findIndex(d => d.id === context.documentId)
-  if (docIndex !== -1) {
-    documents[docIndex].processingStatus = 'in_progress'
-    documents[docIndex].processingStartedAt = new Date().toISOString()
-    await prisma.engagement.update({
-      where: { id: context.engagementId },
-      data: { documents }
-    })
+  if (docIndex !== -1 && documents[docIndex].processingStartedAt) {
+    const startTime = new Date(documents[docIndex].processingStartedAt!)
+    const timeSinceStart = Date.now() - startTime.getTime()
+    const FIVE_MINUTES_MS = 5 * 60 * 1000
+    
+    if (timeSinceStart > FIVE_MINUTES_MS) {
+      console.log(`[ASSESSMENT] Processing timeout detected for ${context.documentId}. Resetting status.`)
+      await updateProcessingStatus('error')
+      throw new Error('Processing timeout: document stuck in processing for over 5 minutes')
+    }
   }
+
+  // Mark document as starting download
+  await updateProcessingStatus('downloading')
 
   const systemPrompt = `You are a Document Assessment Agent for a tax document collection system. Your role is to analyze uploaded documents and classify them.
 
@@ -444,7 +506,7 @@ Expected Tax Year: ${engagement.taxYear}
 
 Your workflow:
 1. Extract the document content using OCR (extract_document)
-2. Classify the document (classify_document) - this also validates and detects issues
+2. Classify the document (classify_document with document ID) - this also validates and detects issues
 3. Update the document record with the classification results (update_document)
 
 The classify_document tool handles all validation including:
@@ -520,6 +582,10 @@ Be efficient - extract, classify, update. Don't use flag_issue separately unless
     return { hasIssues, documentType }
   } catch (error) {
     console.error(`[ASSESSMENT] Error processing document ${context.documentId}:`, error)
+    
+    // Mark document as error state
+    await updateProcessingStatus('error')
+    
     throw error
   }
 }
