@@ -28,7 +28,44 @@ export const reconciliationServer = createSdkMcpServer({
         }
 
         const checklist = (engagement.checklist as ChecklistItem[] | null) ?? []
-        const documents = (engagement.documents as Document[] | null) ?? []
+        let documents = (engagement.documents as Document[] | null) ?? []
+        
+        // Auto-archive older documents of the same type, keeping only the newest
+        const documentsByType = new Map<string, Document[]>()
+        for (const doc of documents) {
+          if (!documentsByType.has(doc.documentType)) {
+            documentsByType.set(doc.documentType, [])
+          }
+          documentsByType.get(doc.documentType)!.push(doc)
+        }
+        
+        // For each type, keep only the most recently classified, archive others
+        for (const [docType, docsOfType] of documentsByType) {
+          if (docsOfType.length > 1) {
+            // Sort by classifiedAt (newest first), fallback to filename for deterministic order
+            docsOfType.sort((a, b) => {
+              const aTime = a.classifiedAt ? new Date(a.classifiedAt).getTime() : 0
+              const bTime = b.classifiedAt ? new Date(b.classifiedAt).getTime() : 0
+              if (aTime !== bTime) return bTime - aTime // Newest first
+              return a.fileName.localeCompare(b.fileName)
+            })
+            
+            // Keep the first (newest), archive the rest
+            for (let i = 1; i < docsOfType.length; i++) {
+              const docIndex = documents.findIndex(d => d.id === docsOfType[i].id)
+              if (docIndex !== -1) {
+                documents[docIndex].archived = true
+              }
+            }
+          }
+        }
+        
+        // Update documents with archive status
+        await prisma.engagement.update({
+          where: { id: args.engagementId },
+          data: { documents }
+        })
+        
         const reconciliation = engagement.reconciliation as Reconciliation | null
 
         return {
@@ -54,6 +91,7 @@ export const reconciliationServer = createSdkMcpServer({
                 taxYear: doc.taxYear,
                 issues: doc.issues,
                 approved: doc.approved,
+                archived: doc.archived || false,
                 override: doc.override
               })),
               currentReconciliation: reconciliation ? {

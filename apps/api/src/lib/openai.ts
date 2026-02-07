@@ -59,6 +59,16 @@ export async function classifyDocument(
   taxYear: number | null
   issues: string[]
 }> {
+  // Content length check - auto-flag incomplete documents
+  const contentLength = content.trim().length
+  if (contentLength < 100) {
+    return {
+      documentType: 'OTHER',
+      confidence: 0.1,
+      taxYear: null,
+      issues: ['[ERROR:incomplete::] Document appears incomplete - extracted text is too short for reliable classification']
+    }
+  }
   const ClassificationSchema = z.object({
     documentType: z.string(),
     confidence: z.number(),
@@ -70,7 +80,7 @@ export async function classifyDocument(
 
 1. **documentType**: One of: W-2, 1099-NEC, 1099-MISC, 1099-INT, 1099-DIV, 1099-B, 1099-R, K-1, RECEIPT, STATEMENT, OTHER
 
-2. **confidence**: 0-1 score. Use < 0.7 if document is unclear, partially visible, or you're uncertain.
+2. **confidence**: 0-1 score. Use < 0.7 if document is unclear, partially visible, or you're uncertain. For documents with minimal content (< 500 chars), use confidence < 0.5.
 
 3. **taxYear**: The tax year shown on the document (e.g., 2024, 2025). Return null if not visible.
 
@@ -108,7 +118,7 @@ Only flag issues that actually affect tax preparation. Don't flag cosmetic issue
     model: MODEL,
     messages: [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: `File: ${fileName}\n\nContent:\n${content.slice(0, 10000)}` },
+      { role: 'user', content: `File: ${fileName}\nContent Length: ${content.length} characters\n\nContent:\n${content.slice(0, 10000)}` },
     ],
     response_format: zodResponseFormat(ClassificationSchema, 'classification'),
     temperature: 0,

@@ -41,6 +41,7 @@ export default function EngagementDetail() {
   const [generatingBrief, setGeneratingBrief] = useState(false)
   const [actionInProgress, setActionInProgress] = useState<string | null>(null)
   const [checkingForDocs, setCheckingForDocs] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
 
   const selectedDocId = searchParams.get('doc')
 
@@ -168,12 +169,34 @@ export default function EngagementDetail() {
   }
 
   const checklist = (engagement.checklist as ChecklistItem[]) || []
-  const documents = (engagement.documents as Document[]) || []
+  const allDocuments = (engagement.documents as Document[]) || []
+  const documents = showArchived ? allDocuments : allDocuments.filter(doc => !doc.archived)
+  const archivedCount = allDocuments.filter(doc => doc.archived).length
   const reconciliation = engagement.reconciliation as Reconciliation | null
 
   function isDocProcessing(doc: Document): boolean {
-    return doc.processingStatus === 'in_progress' ||
+    return ['downloading', 'extracting', 'classifying'].includes(doc.processingStatus || '') ||
       (doc.documentType === 'PENDING' && doc.processingStatus !== 'classified')
+  }
+  
+  function getProcessingStage(doc: Document): string {
+    if (!doc.processingStatus) return 'pending'
+    if (doc.processingStatus === 'error') return 'error'
+    if (doc.processingStatus === 'classified') return 'completed'
+    return doc.processingStatus
+  }
+  
+  function getProcessingProgress(doc: Document): number {
+    const stage = doc.processingStatus || 'pending'
+    const stageProgress = {
+      'pending': 0,
+      'downloading': 25,
+      'extracting': 50,
+      'classifying': 75,
+      'classified': 100,
+      'error': 0
+    }
+    return stageProgress[stage] || 0
   }
 
   // Build a map of checklist item statuses from reconciliation
@@ -246,16 +269,31 @@ export default function EngagementDetail() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           {/* Document List */}
           <div className="bg-white rounded-lg border">
-            <div className="p-4 border-b flex items-center justify-between">
-              <h2 className="font-semibold">Documents ({documents.length})</h2>
-              {['INTAKE_DONE', 'COLLECTING'].includes(engagement.status) && (
-                <button
-                  onClick={handleCheckForDocs}
-                  disabled={checkingForDocs}
-                  className="text-sm px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {checkingForDocs ? 'Checking...' : 'Check for Documents'}
-                </button>
+            <div className="p-4 border-b">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="font-semibold">Documents ({documents.length})</h2>
+                {['INTAKE_DONE', 'COLLECTING'].includes(engagement.status) && (
+                  <button
+                    onClick={handleCheckForDocs}
+                    disabled={checkingForDocs}
+                    className="text-sm px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {checkingForDocs ? 'Checking...' : 'Check for Documents'}
+                  </button>
+                )}
+              </div>
+              {archivedCount > 0 && (
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center text-sm text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={showArchived}
+                      onChange={(e) => setShowArchived(e.target.checked)}
+                      className="mr-2"
+                    />
+                    Show archived documents ({archivedCount})
+                  </label>
+                </div>
               )}
             </div>
             {documents.some(d => isDocProcessing(d)) && (
@@ -267,13 +305,18 @@ export default function EngagementDetail() {
             <div className="divide-y max-h-[600px] overflow-y-auto">
               {documents.map(doc => {
                 const processing = isDocProcessing(doc)
+                const processingStage = getProcessingStage(doc)
+                const processingProgress = getProcessingProgress(doc)
                 const docHasErrors = hasErrors(doc.issues)
                 const docHasWarnings = hasWarnings(doc.issues)
                 const isResolved = doc.issues.length === 0 || doc.approved === true
                 const isSelected = doc.id === selectedDocId
+                const hasError = processingStage === 'error'
 
                 const bgColor = isSelected
                   ? 'bg-blue-50 border-l-4 border-l-blue-500'
+                  : hasError
+                  ? 'bg-red-50 border-l-4 border-l-red-500'
                   : processing
                   ? 'bg-gray-50'
                   : docHasErrors && !isResolved
@@ -289,9 +332,11 @@ export default function EngagementDetail() {
                     className={`block w-full text-left p-4 transition-colors ${bgColor}`}
                   >
                     <div className="flex items-start justify-between">
-                      <div>
+                      <div className="flex-1">
                         <div className="font-medium flex items-center gap-2">
-                          {processing ? (
+                          {hasError ? (
+                            <span className="text-red-600">⚠</span>
+                          ) : processing ? (
                             <div className="animate-spin w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
                           ) : isResolved ? (
                             <span className="text-green-600">✓</span>
@@ -303,22 +348,62 @@ export default function EngagementDetail() {
                           {doc.fileName}
                         </div>
                         <div className="text-sm text-gray-600">
-                          {processing ? 'Processing...' : doc.documentType}
-                          {!processing && doc.taxYear && ` · ${doc.taxYear}`}
+                          {hasError ? (
+                            <span className="text-red-600">Processing Error</span>
+                          ) : processing ? (
+                            <span className="capitalize">{processingStage}...</span>
+                          ) : (
+                            doc.documentType
+                          )}
+                          {!processing && !hasError && doc.taxYear && ` · ${doc.taxYear}`}
                           {doc.override && (
                             <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-1 rounded">
                               overridden
                             </span>
                           )}
                         </div>
+                        {processing && (
+                          <div className="mt-2">
+                            <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-blue-600 transition-all duration-300" 
+                                style={{ width: `${processingProgress}%` }}
+                              />
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">{processingProgress}%</div>
+                          </div>
+                        )}
                       </div>
-                      {doc.issues.length > 0 && !isResolved && !processing && (
-                        <span className={`text-xs px-2 py-1 rounded-full ${
-                          docHasErrors ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
-                        }`}>
-                          {doc.issues.length} issue{doc.issues.length > 1 ? 's' : ''}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {hasError && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleCheckForDocs() // Retry processing
+                            }}
+                            className="text-xs px-2 py-1 bg-red-100 text-red-800 rounded hover:bg-red-200"
+                          >
+                            Retry
+                          </button>
+                        )}
+                        {doc.issues.length > 0 && !isResolved && !processing && !hasError && (
+                          <div className="flex items-center gap-1">
+                            {docHasErrors ? (
+                              <span className="text-red-600">⚠</span>
+                            ) : (
+                              <span className="text-yellow-600">⚠</span>
+                            )}
+                            <span className="text-xs text-gray-600">
+                              {doc.issues.length}
+                            </span>
+                          </div>
+                        )}
+                        {doc.archived && (
+                          <span className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded">
+                            Archived
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </button>
                 )
