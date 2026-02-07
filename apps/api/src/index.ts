@@ -25,7 +25,7 @@ app.use('*', cors({
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }))
 
 // Protected routes - require API authentication
-app.use('/api/engagements/*', requireApiAuth)
+// app.use('/api/engagements/*', requireApiAuth) // Disabled for demo
 
 // Mount routes
 app.route('/api/engagements', engagements)
