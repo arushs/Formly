@@ -458,7 +458,7 @@ Be precise - only match documents where the types align exactly.`
   let completionPercentage = 0
 
   try {
-    const response = query({
+    const response = await query({
       prompt,
       options: {
         model: 'claude-sonnet-4-5',
