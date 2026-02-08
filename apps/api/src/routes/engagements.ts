@@ -110,6 +110,7 @@ const UpdateEngagementSchema = z.object({
   storageDriveId: z.string().optional(),
   storageFolderUrl: z.string().url().optional(),
   storageProvider: z.enum(['dropbox', 'google-drive']).optional(),
+  status: z.enum(['PENDING', 'INTAKE_DONE', 'COLLECTING', 'READY']).optional(),
 })
 
 // PATCH /api/engagements/:id - Update engagement
@@ -139,6 +140,10 @@ app.patch('/:id', zValidator('json', UpdateEngagementSchema), async (c) => {
 
   if (body.storageProvider !== undefined) {
     updateData.storageProvider = body.storageProvider
+  }
+
+  if (body.status !== undefined) {
+    updateData.status = body.status
   }
 
   const updated = await prisma.engagement.update({
